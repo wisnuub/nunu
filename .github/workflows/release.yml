@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'alpha-v*'
+      - 'v*'
+
+jobs:
+  build-mac:
+    name: Build macOS
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and package (macOS)
+        run: npm run electron:build:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nunu-mac
+          path: release/*.dmg
+
+  build-win:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and package (Windows)
+        run: npm run electron:build:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nunu-win
+          path: release/*.exe
+
+  release:
+    name: Create Release
+    needs: [build-mac, build-win]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nunu-mac
+          path: artifacts/mac
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nunu-win
+          path: artifacts/win
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Alpha v0.0.1
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: true
+          body: |
+            ## nunu — Alpha v0.0.1
+
+            First public release of nunu, the Android gaming launcher for Mac and Windows.
+
+            ### Download
+            - **macOS (Apple Silicon)** — download the `.dmg`, open it and drag nunu to Applications
+            - **Windows** — download the `.exe` installer and run it
+
+            ### What's included
+            - One-click Android setup with guided onboarding
+            - Device certification setup (Google Play support)
+            - Game library with install and launch support
+            - Google account sign-in
+            - Automatic update checking
+
+            ### Notes
+            - macOS: right-click → Open on first launch if Gatekeeper blocks it
+            - Windows: click "More info → Run anyway" if SmartScreen appears (app is not yet code-signed)
+            - ADB must be available for full functionality (`brew install android-platform-tools` on Mac, add to PATH on Windows)
+          files: |
+            artifacts/mac/*.dmg
+            artifacts/win/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
