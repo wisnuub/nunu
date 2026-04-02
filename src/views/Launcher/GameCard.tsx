@@ -14,14 +14,14 @@ export function GameCard({ game }: GameCardProps) {
   const isInstalling = progress > 0 && progress < 100
 
   const [artUrl, setArtUrl] = useState<string | null>(null)
+  const [bannerUrl, setBannerUrl] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [launchError, setLaunchError] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    window.nunu?.fetchGameArt?.(game.packageId).then((url) => {
-      if (url) setArtUrl(url)
-    })
+    window.nunu?.fetchGameArt?.(game.packageId).then((url) => { if (url) setArtUrl(url) })
+    window.nunu?.fetchGameBanner?.(game.packageId).then((url) => { if (url) setBannerUrl(url) })
   }, [game.packageId])
 
   // Close menu on outside click
@@ -73,21 +73,31 @@ export function GameCard({ game }: GameCardProps) {
 
   return (
     <div className="rounded-[12px] overflow-hidden border border-white/5 bg-[#141720] hover:border-white/10 transition-all duration-200 hover:scale-[1.01] cursor-pointer group">
-      {/* Art area */}
+      {/* Art area — banner as background, icon on top */}
       <div
-        className="relative h-36 flex items-center justify-center overflow-hidden"
-        style={{ background: `linear-gradient(135deg, ${game.gradientFrom}, ${game.gradientTo})` }}
+        className="relative h-36 flex items-end justify-start overflow-hidden"
+        style={
+          bannerUrl
+            ? { backgroundImage: `url(${bannerUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+            : { background: `linear-gradient(135deg, ${game.gradientFrom}, ${game.gradientTo})` }
+        }
       >
-        {artUrl ? (
-          <img src={artUrl} alt={game.name} className="w-20 h-20 rounded-2xl object-cover shadow-lg" />
-        ) : (
-          <div
-            className="px-4 py-2 rounded-xl font-black text-2xl tracking-widest text-white/90 select-none"
-            style={{ background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(6px)' }}
-          >
-            {game.abbr}
-          </div>
-        )}
+        {/* Dark scrim so the bottom info area is readable */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+
+        {/* App icon bottom-left */}
+        <div className="relative z-10 p-3">
+          {artUrl ? (
+            <img src={artUrl} alt={game.name} className="w-12 h-12 rounded-xl object-cover shadow-lg border border-white/10" />
+          ) : (
+            <div
+              className="w-12 h-12 rounded-xl flex items-center justify-center font-black text-base text-white/90 select-none border border-white/10"
+              style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(6px)' }}
+            >
+              {game.abbr.slice(0, 2)}
+            </div>
+          )}
+        </div>
 
         {/* Installing overlay */}
         {isInstalling && (

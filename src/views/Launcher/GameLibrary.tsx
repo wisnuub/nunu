@@ -51,12 +51,12 @@ export function GameLibrary() {
   const isFeaturedInstalling = featuredProgress > 0 && featuredProgress < 100
 
   const [featuredArt, setFeaturedArt] = useState<string | null>(null)
+  const [featuredBanner, setFeaturedBanner] = useState<string | null>(null)
   const [featuredLaunchError, setFeaturedLaunchError] = useState('')
 
   useEffect(() => {
-    window.nunu?.fetchGameArt?.(featured.packageId).then((url) => {
-      if (url) setFeaturedArt(url)
-    })
+    window.nunu?.fetchGameArt?.(featured.packageId).then((url) => { if (url) setFeaturedArt(url) })
+    window.nunu?.fetchGameBanner?.(featured.packageId).then((url) => { if (url) setFeaturedBanner(url) })
   }, [featured.packageId])
 
   const handleFeaturedAction = async () => {
@@ -100,10 +100,11 @@ export function GameLibrary() {
       {/* Featured hero card */}
       <div
         className="relative w-full rounded-[16px] overflow-hidden border border-white/5"
-        style={{
-          height: 280,
-          background: `linear-gradient(135deg, ${featured.gradientFrom}, ${featured.gradientTo})`,
-        }}
+        style={
+          featuredBanner
+            ? { height: 280, backgroundImage: `url(${featuredBanner})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+            : { height: 280, background: `linear-gradient(135deg, ${featured.gradientFrom}, ${featured.gradientTo})` }
+        }
       >
         {/* Background pattern */}
         <div className="absolute inset-0 overflow-hidden">

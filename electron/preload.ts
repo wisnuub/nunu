@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('nunu', {
 
   // Play Store art
   fetchGameArt: (packageId: string) => ipcRenderer.invoke('game:fetchArt', packageId),
+  fetchGameBanner: (packageId: string) => ipcRenderer.invoke('game:fetchBanner', packageId),
 
   // Updates
   checkUpdate: () => ipcRenderer.invoke('update:check'),

@@ -188,20 +188,28 @@ ipcMain.handle('google:signin', async () => {
 
 // ── Play Store art scraping ──────────────────────────────────────────────────
 
-const artCache = new Map<string, string | null>()
+const artCache  = new Map<string, string | null>()
+const bannerCache = new Map<string, string | null>()
+const htmlCache = new Map<string, string>()
+
+async function fetchPlayStorePage(packageId: string): Promise<string> {
+  if (htmlCache.has(packageId)) return htmlCache.get(packageId)!
+  const url = `https://play.google.com/store/apps/details?id=${packageId}&hl=en`
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  })
+  const html = await res.text()
+  htmlCache.set(packageId, html)
+  return html
+}
 
 ipcMain.handle('game:fetchArt', async (_event, packageId: string) => {
   if (artCache.has(packageId)) return artCache.get(packageId)
-
   try {
-    const url = `https://play.google.com/store/apps/details?id=${packageId}&hl=en`
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-    })
-    const html = await res.text()
+    const html = await fetchPlayStorePage(packageId)
     const match = html.match(/<meta property="og:image" content="([^"]+)"/)
     if (match) {
       const iconUrl = match[1].replace(/=w\d+-h\d+(-rw)?/, '=w512-h512-rw')
@@ -209,8 +217,33 @@ ipcMain.handle('game:fetchArt', async (_event, packageId: string) => {
       return iconUrl
     }
   } catch { /* ignore */ }
-
   artCache.set(packageId, null)
+  return null
+})
+
+ipcMain.handle('game:fetchBanner', async (_event, packageId: string) => {
+  if (bannerCache.has(packageId)) return bannerCache.get(packageId)
+  try {
+    const html = await fetchPlayStorePage(packageId)
+
+    // Get the icon URL so we can exclude it
+    const iconMatch = html.match(/<meta property="og:image" content="([^"]+)"/)
+    const iconHash = iconMatch ? iconMatch[1].split('/').pop()?.split('=')[0] : null
+
+    // Collect all play-lh image URLs from the page
+    const allUrls = [...html.matchAll(/https:\/\/play-lh\.googleusercontent\.com\/([^"'\s\\]+)/g)]
+      .map(m => `https://play-lh.googleusercontent.com/${m[1].split('=')[0]}`)
+      .filter((v, i, arr) => arr.indexOf(v) === i) // deduplicate
+
+    // Pick first URL that isn't the icon — this is the feature graphic / banner
+    const bannerBase = allUrls.find(u => !iconHash || !u.includes(iconHash))
+    if (bannerBase) {
+      const bannerUrl = `${bannerBase}=w1024-h500-rw`
+      bannerCache.set(packageId, bannerUrl)
+      return bannerUrl
+    }
+  } catch { /* ignore */ }
+  bannerCache.set(packageId, null)
   return null
 })
 

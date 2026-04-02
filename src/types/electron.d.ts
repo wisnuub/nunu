@@ -16,6 +16,7 @@ declare global {
 
       launchGame: (packageId: string) => Promise<{ success: boolean; alreadyRunning?: boolean; error?: string }>
       fetchGameArt: (packageId: string) => Promise<string | null>
+      fetchGameBanner: (packageId: string) => Promise<string | null>
 
       signInWithGoogle: () => Promise<{
         success: boolean
