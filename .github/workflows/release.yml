@@ -42,14 +42,14 @@ jobs:
             -volname "nunu" \
             -srcfolder "$STAGING" \
             -ov -format UDZO \
-            "release/nunu-0.0.2-arm64.dmg"
+            "release/nunu-0.0.3-arm64.dmg"
           rm -rf "$STAGING"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: nunu-mac
-          path: release/nunu-0.0.2-arm64.dmg
+          path: release/nunu-0.0.3-arm64.dmg
 
   build-win:
     name: Build Windows
@@ -101,12 +101,12 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Alpha v0.0.2
+          name: Alpha v0.0.3
           tag_name: ${{ github.ref_name }}
           draft: false
           prerelease: true
           body: |
-            ## nunu — Alpha v0.0.2
+            ## nunu — Alpha v0.0.3
 
             First public release of nunu, the Android gaming launcher for Mac and Windows.
 
