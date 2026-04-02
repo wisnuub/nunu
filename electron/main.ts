@@ -123,8 +123,7 @@ ipcMain.handle('install:start', async (_event, options: { androidVersion?: strin
   })
 
   try {
-    await service.downloadAVMCore()
-    await service.downloadAndroidImage(options.androidVersion ?? '13')
+    await service.downloadAndroidImage(options.androidVersion ?? '14')
     return { success: true }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
@@ -265,13 +264,23 @@ ipcMain.handle('config:set', (_event, key: string, value: unknown) => {
 // ── VM helpers ───────────────────────────────────────────────────────────────
 
 function findAvmBinary(): string | null {
+  const ext = process.platform === 'win32' ? '.exe' : ''
+  const candidates: string[] = []
+
+  // 1. Bundled inside the packaged Electron app (production)
+  if (app.isPackaged) {
+    candidates.push(join(process.resourcesPath, 'avm', `avm${ext}`))
+  }
+
+  // 2. Dev: native build inside the repo (npm run electron:dev)
+  const repoRoot = join(__dirname, '..', '..')
+  candidates.push(join(repoRoot, 'native', 'avm', 'build', `avm${ext}`))
+
+  // 3. Legacy manual install locations
   const home = app.getPath('home')
-  const candidates = [
-    join(home, '.nunu', 'avm-core', 'avm'),
-    // dev build locations
-    join(home, 'Documents', 'GitHub', 'AVM', 'build', 'avm'),
-    '/usr/local/bin/avm',
-  ]
+  candidates.push(join(home, '.nunu', 'avm-core', `avm${ext}`))
+  candidates.push(join(home, 'Documents', 'GitHub', 'AVM', 'build', `avm${ext}`))
+
   for (const p of candidates) {
     if (existsSync(p)) return p
   }
@@ -358,7 +367,7 @@ ipcMain.handle('vm:launch', async (_event, packageId: string) => {
   if (!avmBin) {
     return {
       success: false,
-      error: 'AVM not found. Expected at ~/.nunu/avm-core/avm — see github.com/wisnuub/AVM.',
+      error: 'AVM engine not found. Please reinstall nunu from github.com/wisnuub/nunu.',
     }
   }
 

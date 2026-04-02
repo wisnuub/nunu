@@ -4,3 +4,4 @@ dist-electron/
 release/
 .DS_Store
 *.log
+native/avm/build/

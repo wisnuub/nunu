@@ -6,11 +6,17 @@ mac:
   target: dir
   icon: assets/icon.icns
   category: public.app-category.games
+  extraResources:
+    - from: native/avm/build/avm
+      to: avm/avm
 win:
   target:
     - target: nsis
-      arch: [x64, arm64]
+      arch: [x64]
   icon: assets/icon.ico
+  extraResources:
+    - from: native/avm/build/avm.exe
+      to: avm/avm.exe
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

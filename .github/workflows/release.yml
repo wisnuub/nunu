@@ -18,7 +18,33 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install dependencies
+      # ── AVM: build dependencies
+      - name: Install AVM build deps
+        run: brew install cmake ninja sdl2 sdl2_ttf molten-vk
+
+      # ── AVM: configure + build
+      - name: Build AVM (C++)
+        run: |
+          cmake -B native/avm/build -S native/avm -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DAVM_ENABLE_HVF=ON \
+            -DAVM_ENABLE_MOLTENVK=ON \
+            -DAVM_ENABLE_KVM=OFF \
+            -DAVM_ENABLE_WHPX=OFF \
+            -DAVM_ENABLE_OVERLAY=OFF
+          cmake --build native/avm/build --parallel
+
+      # ── AVM: codesign with Hypervisor entitlement BEFORE electron-builder
+      #    wraps it — otherwise Hypervisor.framework is denied at runtime
+      - name: Codesign AVM binary
+        run: |
+          codesign \
+            --entitlements native/avm/avm.entitlements \
+            --force \
+            -s - \
+            native/avm/build/avm
+
+      - name: Install npm dependencies
         run: npm ci
 
       - name: Build renderer
@@ -29,12 +55,19 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Ad-hoc sign app
-        run: codesign --force --deep --sign - "release/mac-arm64/nunu.app"
+      # ── Sign the full .app passing AVM entitlements so the Hypervisor
+      #    entitlement is preserved through the deep sign
+      - name: Sign app (ad-hoc + Hypervisor entitlement)
+        run: |
+          codesign \
+            --entitlements native/avm/avm.entitlements \
+            --force \
+            --deep \
+            --sign - \
+            "release/mac-arm64/nunu.app"
 
       - name: Create DMG
         run: |
-          # Stage app + Applications alias so users can drag-to-install
           STAGING=$(mktemp -d)
           cp -r "release/mac-arm64/nunu.app" "$STAGING/"
           ln -s /Applications "$STAGING/Applications"
@@ -42,14 +75,14 @@ jobs:
             -volname "nunu" \
             -srcfolder "$STAGING" \
             -ov -format UDZO \
-            "release/nunu-0.0.4-arm64.dmg"
+            "release/nunu-${{ github.ref_name }}-arm64.dmg"
           rm -rf "$STAGING"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: nunu-mac
-          path: release/nunu-0.0.4-arm64.dmg
+          path: release/nunu-${{ github.ref_name }}-arm64.dmg
 
   build-win:
     name: Build Windows
@@ -62,7 +95,29 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install dependencies
+      # ── AVM: SDL2 via vcpkg static (avoids bundling DLLs separately)
+      - name: Install SDL2 via vcpkg
+        run: |
+          vcpkg install sdl2:x64-windows-static sdl2-ttf:x64-windows-static
+          vcpkg integrate install
+
+      # ── AVM: configure + build
+      - name: Build AVM (C++)
+        run: |
+          $toolchain = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+          cmake -B native/avm/build -S native/avm `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DAVM_ENABLE_WHPX=ON `
+            -DAVM_ENABLE_HVF=OFF `
+            -DAVM_ENABLE_KVM=OFF `
+            -DAVM_ENABLE_OVERLAY=OFF
+          cmake --build native/avm/build --config Release --parallel
+          Copy-Item native/avm/build/Release/avm.exe native/avm/build/avm.exe
+
+      - name: Install npm dependencies
         run: npm ci
 
       - name: Build renderer
@@ -101,32 +156,32 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Alpha v0.0.4
+          name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           draft: false
           prerelease: true
           body: |
-            ## nunu — Alpha v0.0.4 — Working Test Build
+            ## nunu ${{ github.ref_name }}
 
-            This is a working test build with the AVM emulator integration active.
-            Android games now boot and launch end-to-end from the nunu UI.
-
-            ### What's new
-            - **AVM emulator wired up** — pressing Play boots Android 14 (Google Play) via the Android SDK emulator
-            - **Auto-detects** AVM binary and SDK system image — no manual config needed
-            - **Game launch via ADB** — after Android boots, the game opens automatically
-            - **Play Store banners** as game card backgrounds (fetched from Play Store)
-            - **Launch state feedback** — button shows Starting → Booting → launches
-            - **Landscape 1920×1080 @ 240 DPI** — correct resolution for gaming
-
-            ### Setup required before Play works
-            1. Install AVM: build from [github.com/wisnuub/AVM](https://github.com/wisnuub/AVM) and copy to `~/.nunu/avm-core/avm`
-            2. Install Android image: `sdkmanager "system-images;android-34;google_apis_playstore;arm64-v8a"`
-            3. Install ADB: `brew install android-platform-tools` (Mac) or Android SDK Platform Tools (Windows)
+            Android gaming launcher for Mac and Windows — AVM emulator engine included, no separate install required.
 
             ### Download
-            - **macOS (Apple Silicon)** — `.dmg`, drag nunu to Applications
-            - **Windows** — `.exe` installer
+            - **macOS (Apple Silicon)** — download the `.dmg`, open it and drag nunu to Applications
+            - **Windows** — download the `.exe` installer and run it
+
+            ### What's inside
+            - AVM emulator engine (bundled — no separate download needed)
+            - Android 14 with Google Play support
+            - Game library with Play Store banners
+            - Google account sign-in
+            - Automatic update checking
+
+            ### First run
+            Install the Android system image if you haven't already:
+            ```
+            sdkmanager "system-images;android-34;google_apis_playstore;arm64-v8a"
+            ```
+            Install ADB: `brew install android-platform-tools` (Mac) or Android SDK Platform Tools (Windows)
 
             ### Notes
             - macOS: right-click → Open on first launch if Gatekeeper blocks it
