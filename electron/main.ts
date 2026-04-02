@@ -186,6 +186,34 @@ ipcMain.handle('google:signin', async () => {
   }
 })
 
+// ── Play Store art scraping ──────────────────────────────────────────────────
+
+const artCache = new Map<string, string | null>()
+
+ipcMain.handle('game:fetchArt', async (_event, packageId: string) => {
+  if (artCache.has(packageId)) return artCache.get(packageId)
+
+  try {
+    const url = `https://play.google.com/store/apps/details?id=${packageId}&hl=en`
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    })
+    const html = await res.text()
+    const match = html.match(/<meta property="og:image" content="([^"]+)"/)
+    if (match) {
+      const iconUrl = match[1].replace(/=w\d+-h\d+(-rw)?/, '=w512-h512-rw')
+      artCache.set(packageId, iconUrl)
+      return iconUrl
+    }
+  } catch { /* ignore */ }
+
+  artCache.set(packageId, null)
+  return null
+})
+
 // ── Config IPC ───────────────────────────────────────────────────────────────
 
 ipcMain.handle('config:get', (_event, key: string) => {

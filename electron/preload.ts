@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('nunu', {
   // VM launch
   launchGame: (packageId: string) => ipcRenderer.invoke('vm:launch', packageId),
 
+  // Play Store art
+  fetchGameArt: (packageId: string) => ipcRenderer.invoke('game:fetchArt', packageId),
+
   // Updates
   checkUpdate: () => ipcRenderer.invoke('update:check'),
 

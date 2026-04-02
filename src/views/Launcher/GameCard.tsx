@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from 'react'
 import { useAppStore } from '../../store/appStore'
 import type { Game } from '../../data/games'
 
@@ -6,15 +7,41 @@ interface GameCardProps {
 }
 
 export function GameCard({ game }: GameCardProps) {
-  const { installedGames, installProgress, setInstallProgress, addInstalledGame } = useAppStore()
+  const { installedGames, installProgress, setInstallProgress, addInstalledGame, removeInstalledGame } = useAppStore()
 
   const isInstalled = installedGames.includes(game.id)
   const progress = installProgress[game.id] ?? 0
   const isInstalling = progress > 0 && progress < 100
 
+  const [artUrl, setArtUrl] = useState<string | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [launchError, setLaunchError] = useState('')
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    window.nunu?.fetchGameArt?.(game.packageId).then((url) => {
+      if (url) setArtUrl(url)
+    })
+  }, [game.packageId])
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuOpen])
+
   const handleAction = async () => {
     if (isInstalled) {
-      await window.nunu?.launchGame?.(game.packageId)
+      setLaunchError('')
+      const result = await window.nunu?.launchGame?.(game.packageId)
+      if (result && !result.success && !result.alreadyRunning) {
+        setLaunchError(result.error ?? 'Failed to launch')
+        setTimeout(() => setLaunchError(''), 4000)
+      }
       return
     }
     if (isInstalling) return
@@ -36,7 +63,6 @@ export function GameCard({ game }: GameCardProps) {
         unsub()
       })
     } else {
-      // Demo mode
       for (let i = 1; i <= 100; i += 5) {
         await new Promise<void>((r) => setTimeout(r, 100))
         setInstallProgress(game.id, i)
@@ -46,22 +72,22 @@ export function GameCard({ game }: GameCardProps) {
   }
 
   return (
-    <div
-      className="rounded-[12px] overflow-hidden border border-white/5 bg-[#141720] hover:border-white/10 transition-all duration-200 hover:scale-[1.01] cursor-pointer group"
-    >
+    <div className="rounded-[12px] overflow-hidden border border-white/5 bg-[#141720] hover:border-white/10 transition-all duration-200 hover:scale-[1.01] cursor-pointer group">
       {/* Art area */}
       <div
-        className="relative h-36 flex items-center justify-center"
-        style={{
-          background: `linear-gradient(135deg, ${game.gradientFrom}, ${game.gradientTo})`,
-        }}
+        className="relative h-36 flex items-center justify-center overflow-hidden"
+        style={{ background: `linear-gradient(135deg, ${game.gradientFrom}, ${game.gradientTo})` }}
       >
-        <div
-          className="px-4 py-2 rounded-xl font-black text-2xl tracking-widest text-white/90 select-none"
-          style={{ background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(6px)' }}
-        >
-          {game.abbr}
-        </div>
+        {artUrl ? (
+          <img src={artUrl} alt={game.name} className="w-20 h-20 rounded-2xl object-cover shadow-lg" />
+        ) : (
+          <div
+            className="px-4 py-2 rounded-xl font-black text-2xl tracking-widest text-white/90 select-none"
+            style={{ background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(6px)' }}
+          >
+            {game.abbr}
+          </div>
+        )}
 
         {/* Installing overlay */}
         {isInstalling && (
@@ -69,10 +95,7 @@ export function GameCard({ game }: GameCardProps) {
             <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
               <div
                 className="h-full rounded-full transition-all duration-200"
-                style={{
-                  width: `${progress}%`,
-                  background: 'linear-gradient(90deg, #5B6EF5, #8B5CF6)',
-                }}
+                style={{ width: `${progress}%`, background: 'linear-gradient(90deg, #5B6EF5, #8B5CF6)' }}
               />
             </div>
             <span className="text-white text-xs font-medium">{progress}%</span>
@@ -87,23 +110,59 @@ export function GameCard({ game }: GameCardProps) {
           <span className="text-white/30 text-xs shrink-0">{game.size}</span>
         </div>
 
+        {launchError && (
+          <p className="text-red-400 text-xs mb-2 leading-tight">{launchError}</p>
+        )}
+
         <div className="flex items-center justify-between">
           <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 text-white/40 font-medium">
             {game.genre}
           </span>
 
-          <button
-            onClick={handleAction}
-            disabled={isInstalling}
-            className="px-3 py-1.5 rounded-[6px] text-xs font-semibold transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-            style={
-              isInstalled
-                ? { background: '#16A34A', color: '#fff' }
-                : { background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)', color: '#fff' }
-            }
-          >
-            {isInstalling ? 'Installing…' : isInstalled ? 'Play' : 'Install'}
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleAction}
+              disabled={isInstalling}
+              className="px-3 py-1.5 rounded-[6px] text-xs font-semibold transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+              style={
+                isInstalled
+                  ? { background: '#16A34A', color: '#fff' }
+                  : { background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)', color: '#fff' }
+              }
+            >
+              {isInstalling ? 'Installing…' : isInstalled ? 'Play' : 'Install'}
+            </button>
+
+            {isInstalled && (
+              <div className="relative" ref={menuRef}>
+                <button
+                  onClick={() => setMenuOpen((v) => !v)}
+                  className="w-7 h-7 rounded-[6px] flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/5 transition-colors focus:outline-none text-lg leading-none"
+                >
+                  ⋮
+                </button>
+                {menuOpen && (
+                  <div className="absolute right-0 bottom-full mb-1 bg-[#1e2232] border border-white/10 rounded-[8px] shadow-2xl z-20 min-w-[148px] overflow-hidden">
+                    {[
+                      { label: 'Clear cache', action: () => { setMenuOpen(false) } },
+                      { label: 'Clear data', action: () => { setMenuOpen(false) } },
+                      { label: 'Uninstall', action: () => { removeInstalledGame(game.id); setMenuOpen(false) }, danger: true },
+                    ].map((item) => (
+                      <button
+                        key={item.label}
+                        onClick={item.action}
+                        className={`w-full text-left px-4 py-2.5 text-sm transition-colors hover:bg-white/5 focus:outline-none ${
+                          item.danger ? 'text-red-400' : 'text-white/70'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

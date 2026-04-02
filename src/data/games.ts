@@ -1,3 +1,16 @@
+export interface SystemApp {
+  id: string
+  name: string
+  packageId: string
+}
+
+export const SYSTEM_APPS: SystemApp[] = [
+  { id: 'play-store', name: 'Play Store', packageId: 'com.android.vending' },
+  { id: 'settings', name: 'Settings', packageId: 'com.android.settings' },
+  { id: 'chrome', name: 'Chrome', packageId: 'com.android.chrome' },
+  { id: 'google', name: 'Google', packageId: 'com.google.android.googlequicksearchbox' },
+]
+
 export interface Game {
   id: string
   name: string

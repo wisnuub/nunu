@@ -1,6 +1,46 @@
+import { useState, useEffect } from 'react'
 import { useAppStore } from '../../store/appStore'
-import { GAMES } from '../../data/games'
+import { GAMES, SYSTEM_APPS } from '../../data/games'
 import { GameCard } from './GameCard'
+
+function SystemAppTile({ packageId, name }: { packageId: string; name: string }) {
+  const [artUrl, setArtUrl] = useState<string | null>(null)
+  const [launchError, setLaunchError] = useState('')
+
+  useEffect(() => {
+    window.nunu?.fetchGameArt?.(packageId).then((url) => {
+      if (url) setArtUrl(url)
+    })
+  }, [packageId])
+
+  const handleLaunch = async () => {
+    const result = await window.nunu?.launchGame?.(packageId)
+    if (result && !result.success && !result.alreadyRunning) {
+      setLaunchError(result.error ?? 'Failed to launch')
+      setTimeout(() => setLaunchError(''), 3000)
+    }
+  }
+
+  return (
+    <button
+      onClick={handleLaunch}
+      className="flex flex-col items-center gap-2 p-3 rounded-[10px] hover:bg-white/5 transition-colors focus:outline-none group"
+      title={launchError || name}
+    >
+      <div
+        className="w-14 h-14 rounded-2xl flex items-center justify-center overflow-hidden"
+        style={{ background: 'linear-gradient(135deg, #1e2232, #2a2f45)' }}
+      >
+        {artUrl ? (
+          <img src={artUrl} alt={name} className="w-full h-full object-cover rounded-2xl" />
+        ) : (
+          <span className="text-white/30 text-xs font-bold">{name[0]}</span>
+        )}
+      </div>
+      <span className="text-white/50 text-xs font-medium group-hover:text-white/80 transition-colors">{name}</span>
+    </button>
+  )
+}
 
 export function GameLibrary() {
   const { installedGames, setInstallProgress, addInstalledGame } = useAppStore()
@@ -10,9 +50,22 @@ export function GameLibrary() {
   const featuredProgress = useAppStore((s) => s.installProgress[featured.id] ?? 0)
   const isFeaturedInstalling = featuredProgress > 0 && featuredProgress < 100
 
+  const [featuredArt, setFeaturedArt] = useState<string | null>(null)
+  const [featuredLaunchError, setFeaturedLaunchError] = useState('')
+
+  useEffect(() => {
+    window.nunu?.fetchGameArt?.(featured.packageId).then((url) => {
+      if (url) setFeaturedArt(url)
+    })
+  }, [featured.packageId])
+
   const handleFeaturedAction = async () => {
     if (isFeaturedInstalled) {
-      await window.nunu?.launchGame?.(featured.packageId)
+      const result = await window.nunu?.launchGame?.(featured.packageId)
+      if (result && !result.success && !result.alreadyRunning) {
+        setFeaturedLaunchError(result.error ?? 'Failed to launch')
+        setTimeout(() => setFeaturedLaunchError(''), 4000)
+      }
       return
     }
     if (isFeaturedInstalling) return
@@ -34,7 +87,6 @@ export function GameLibrary() {
         unsub()
       })
     } else {
-      // Demo
       for (let i = 1; i <= 100; i += 3) {
         await new Promise<void>((r) => setTimeout(r, 80))
         setInstallProgress(featured.id, i)
@@ -65,16 +117,27 @@ export function GameLibrary() {
 
         {/* Content */}
         <div className="absolute inset-0 flex flex-col justify-end p-8 bg-gradient-to-t from-black/60 to-transparent">
-          <div className="flex items-end justify-between">
-            <div>
-              <div className="flex items-center gap-3 mb-3">
-                <span className="px-3 py-1 rounded-full bg-white/20 text-white/90 text-xs font-medium">
-                  {featured.genre}
-                </span>
-                <span className="text-white/50 text-xs">{featured.size}</span>
+          <div className="flex items-end justify-between gap-6">
+            <div className="flex items-end gap-5">
+              {featuredArt && (
+                <img
+                  src={featuredArt}
+                  alt={featured.name}
+                  className="w-20 h-20 rounded-2xl shadow-xl shrink-0"
+                />
+              )}
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="px-3 py-1 rounded-full bg-white/20 text-white/90 text-xs font-medium">
+                    {featured.genre}
+                  </span>
+                  <span className="text-white/50 text-xs">{featured.size}</span>
+                </div>
+                <h2 className="text-4xl font-bold text-white mb-1">{featured.name}</h2>
+                {featuredLaunchError && (
+                  <p className="text-red-400 text-xs mt-1">{featuredLaunchError}</p>
+                )}
               </div>
-              <h2 className="text-4xl font-bold text-white mb-2">{featured.name}</h2>
-              <p className="text-white/60 text-sm max-w-md">{featured.description}</p>
             </div>
 
             <button
@@ -94,6 +157,16 @@ export function GameLibrary() {
                 : '⬇ Install'}
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* System apps */}
+      <div>
+        <h2 className="text-base font-semibold text-white/70 mb-3">System Apps</h2>
+        <div className="flex gap-1">
+          {SYSTEM_APPS.map((app) => (
+            <SystemAppTile key={app.id} packageId={app.packageId} name={app.name} />
+          ))}
         </div>
       </div>
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useAppStore } from '../../store/appStore'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -42,7 +42,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 }
 
 export function Settings() {
-  const { hasUpdate, pendingUpdate, isSignedIn, userEmail, signOut } = useAppStore()
+  const { hasUpdate, pendingUpdate, isSignedIn, userEmail, signOut, signIn } = useAppStore()
 
   const [ram, setRam] = useState(4)
   const [cores, setCores] = useState(4)
@@ -51,20 +51,8 @@ export function Settings() {
   const [launchOnStartup, setLaunchOnStartup] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateMsg, setUpdateMsg] = useState('')
-  const [clientId, setClientId] = useState('')
-  const [clientIdSaved, setClientIdSaved] = useState(false)
-
-  useEffect(() => {
-    window.nunu?.getConfig?.('googleClientId').then((val) => {
-      if (typeof val === 'string') setClientId(val)
-    })
-  }, [])
-
-  const handleSaveClientId = async () => {
-    await window.nunu?.setConfig?.('googleClientId', clientId)
-    setClientIdSaved(true)
-    setTimeout(() => setClientIdSaved(false), 2000)
-  }
+  const [signingIn, setSigningIn] = useState(false)
+  const [signInError, setSignInError] = useState('')
 
   const handleCheckUpdate = async () => {
     setCheckingUpdate(true)
@@ -81,6 +69,24 @@ export function Settings() {
       setUpdateMsg('Could not check for updates.')
     }
     setCheckingUpdate(false)
+  }
+
+  const handleSignIn = async () => {
+    setSigningIn(true)
+    setSignInError('')
+    try {
+      const result = await window.nunu?.signInWithGoogle()
+      if (result?.success) {
+        signIn(result.email ?? '')
+      } else if (result?.error === 'NO_CLIENT_ID') {
+        setSignInError('Google Client ID not configured in ~/.nunu/config.json')
+      } else {
+        setSignInError(result?.error ?? 'Sign-in failed')
+      }
+    } catch (err) {
+      setSignInError(err instanceof Error ? err.message : 'Unknown error')
+    }
+    setSigningIn(false)
   }
 
   return (
@@ -184,62 +190,64 @@ export function Settings() {
         </Row>
       </Section>
 
-      {/* Google Integration */}
-      <Section title="Google Integration">
-        <div className="px-5 py-4">
-          <p className="text-sm font-medium text-white mb-1">OAuth Client ID</p>
-          <p className="text-xs text-white/35 mb-3">
-            Create a <span className="text-white/60">Desktop app</span> OAuth 2.0 client in Google Cloud Console and paste the ID below. Required for Google Sign-In.
-          </p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              placeholder="xxxxxxxx.apps.googleusercontent.com"
-              className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-[6px] text-sm text-white px-3 py-2 focus:outline-none focus:border-white/20 placeholder:text-white/20"
-            />
-            <button
-              onClick={handleSaveClientId}
-              className="shrink-0 px-4 py-2 rounded-[6px] text-sm font-medium text-white transition-all focus:outline-none"
-              style={{
-                background: clientIdSaved
-                  ? '#16A34A'
-                  : 'linear-gradient(135deg, #5B6EF5, #8B5CF6)',
-              }}
-            >
-              {clientIdSaved ? 'Saved ✓' : 'Save'}
-            </button>
-          </div>
-        </div>
-      </Section>
-
-      {/* Account */}
-      {isSignedIn && (
-        <Section title="Account">
-          <Row label={userEmail ?? 'Google Account'} hint="Signed in">
+      {/* Google Account */}
+      <Section title="Google Account">
+        {isSignedIn ? (
+          <div className="px-5 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white text-sm shrink-0"
+                style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
+              >
+                {(userEmail ?? 'U')[0].toUpperCase()}
+              </div>
+              <div>
+                <p className="text-sm font-medium text-white">{userEmail}</p>
+                <p className="text-xs text-white/40 mt-0.5">Google Account · Signed in</p>
+              </div>
+            </div>
             <button
               onClick={signOut}
               className="px-4 py-1.5 rounded-[6px] text-sm font-medium text-red-400 border border-red-500/20 hover:bg-red-500/10 transition-colors focus:outline-none"
             >
               Sign out
             </button>
-          </Row>
-        </Section>
-      )}
+          </div>
+        ) : (
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-white">No account connected</p>
+                <p className="text-xs text-white/35 mt-0.5">Sign in to sync saves and purchases</p>
+              </div>
+              <button
+                onClick={handleSignIn}
+                disabled={signingIn}
+                className="px-4 py-1.5 rounded-[6px] text-sm font-medium text-white transition-all focus:outline-none disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
+              >
+                {signingIn ? 'Opening…' : 'Sign In'}
+              </button>
+            </div>
+            {signInError && (
+              <p className="text-red-400 text-xs mt-3">{signInError}</p>
+            )}
+          </div>
+        )}
+      </Section>
 
       {/* About */}
       <Section title="About">
         <div className="px-5 py-6 flex flex-col items-center gap-3">
           <div
-            className="w-14 h-14 rounded-xl flex items-center justify-center text-3xl"
+            className="w-14 h-14 rounded-xl flex items-center justify-center font-black text-white text-xl"
             style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
           >
-            🤖
+            n
           </div>
           <div className="text-center">
-            <p className="text-white font-bold text-lg gradient-text">nunu</p>
-            <p className="text-white/40 text-xs mt-0.5">v1.0.0</p>
+            <p className="text-white font-bold text-lg">nunu</p>
+            <p className="text-white/40 text-xs mt-0.5">Alpha v0.0.2</p>
             <p className="text-white/30 text-xs mt-2">Android without compromise</p>
           </div>
         </div>
