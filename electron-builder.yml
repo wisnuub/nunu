@@ -1,0 +1,22 @@
+appId: com.nunu.launcher
+productName: nunu
+directories:
+  output: release
+mac:
+  target: dmg
+  icon: assets/icon.icns
+  category: public.app-category.games
+  entitlements: assets/entitlements.mac.plist
+  entitlementsInherit: assets/entitlements.mac.plist
+  hardenedRuntime: true
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  icon: assets/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: nunu
