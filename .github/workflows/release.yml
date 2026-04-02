@@ -34,11 +34,16 @@ jobs:
 
       - name: Create DMG
         run: |
+          # Stage app + Applications alias so users can drag-to-install
+          STAGING=$(mktemp -d)
+          cp -r "release/mac-arm64/nunu.app" "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
           hdiutil create \
             -volname "nunu" \
-            -srcfolder "release/mac-arm64/nunu.app" \
+            -srcfolder "$STAGING" \
             -ov -format UDZO \
             "release/nunu-0.0.1-arm64.dmg"
+          rm -rf "$STAGING"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
