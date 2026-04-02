@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/icon.svg" width="160" alt="nunu icon" />
+</p>
+
 # nunu — Android without compromise
 
 Run Android games natively on your Mac or Windows PC. nunu handles everything — downloading the Android engine, configuring device certification, and giving you a game library to install and launch titles directly.
