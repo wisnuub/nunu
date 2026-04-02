@@ -42,14 +42,14 @@ jobs:
             -volname "nunu" \
             -srcfolder "$STAGING" \
             -ov -format UDZO \
-            "release/nunu-0.0.3-arm64.dmg"
+            "release/nunu-0.0.4-arm64.dmg"
           rm -rf "$STAGING"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: nunu-mac
-          path: release/nunu-0.0.3-arm64.dmg
+          path: release/nunu-0.0.4-arm64.dmg
 
   build-win:
     name: Build Windows
@@ -101,30 +101,36 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Alpha v0.0.3
+          name: Alpha v0.0.4
           tag_name: ${{ github.ref_name }}
           draft: false
           prerelease: true
           body: |
-            ## nunu — Alpha v0.0.3
+            ## nunu — Alpha v0.0.4 — Working Test Build
 
-            First public release of nunu, the Android gaming launcher for Mac and Windows.
+            This is a working test build with the AVM emulator integration active.
+            Android games now boot and launch end-to-end from the nunu UI.
+
+            ### What's new
+            - **AVM emulator wired up** — pressing Play boots Android 14 (Google Play) via the Android SDK emulator
+            - **Auto-detects** AVM binary and SDK system image — no manual config needed
+            - **Game launch via ADB** — after Android boots, the game opens automatically
+            - **Play Store banners** as game card backgrounds (fetched from Play Store)
+            - **Launch state feedback** — button shows Starting → Booting → launches
+            - **Landscape 1920×1080 @ 240 DPI** — correct resolution for gaming
+
+            ### Setup required before Play works
+            1. Install AVM: build from [github.com/wisnuub/AVM](https://github.com/wisnuub/AVM) and copy to `~/.nunu/avm-core/avm`
+            2. Install Android image: `sdkmanager "system-images;android-34;google_apis_playstore;arm64-v8a"`
+            3. Install ADB: `brew install android-platform-tools` (Mac) or Android SDK Platform Tools (Windows)
 
             ### Download
-            - **macOS (Apple Silicon)** — download the `.dmg`, open it and drag nunu to Applications
-            - **Windows** — download the `.exe` installer and run it
-
-            ### What's included
-            - One-click Android setup with guided onboarding
-            - Device certification setup (Google Play support)
-            - Game library with install and launch support
-            - Google account sign-in
-            - Automatic update checking
+            - **macOS (Apple Silicon)** — `.dmg`, drag nunu to Applications
+            - **Windows** — `.exe` installer
 
             ### Notes
             - macOS: right-click → Open on first launch if Gatekeeper blocks it
-            - Windows: click "More info → Run anyway" if SmartScreen appears (app is not yet code-signed)
-            - ADB must be available for full functionality (`brew install android-platform-tools` on Mac, add to PATH on Windows)
+            - Windows: click "More info → Run anyway" if SmartScreen appears
           files: |
             artifacts/mac/*.dmg
             artifacts/win/*.exe
