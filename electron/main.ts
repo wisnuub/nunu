@@ -308,6 +308,8 @@ function runAdb(args: string[]): Promise<string> {
 
 async function getEmulatorSerial(): Promise<string | null> {
   const out = await runAdb(['devices'])
+  // Prefer emulator-5554 (AVM default), fall back to any running emulator
+  if (out.includes('emulator-5554\tdevice')) return 'emulator-5554'
   const match = out.match(/^(emulator-\d+)\s+device$/m)
   return match ? match[1] : null
 }
