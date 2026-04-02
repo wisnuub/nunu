@@ -804,6 +804,22 @@ std::vector<std::string> VmManager::build_sdk_emulator_args(const std::string& a
     args.push_back("-no-boot-anim");
     args.push_back("-no-audio");
     args.push_back("-no-metrics");
+
+    // Use host GPU (Metal on macOS, ANGLE on Windows) instead of software lavapipe.
+    // Without this the emulator defaults to lavapipe which is CPU-bound and causes freezes.
+    args.push_back("-gpu");         args.push_back("host");
+
+    // Persist the shader cache across sessions so shaders don't recompile every boot.
+    // The cache lives in the AVD home next to the AVD data directory.
+    const char* home = getenv("HOME");
+    if (home) {
+        std::string cache_dir = std::string(home) + "/.avd/shader_cache";
+        args.push_back("-feature-flags");
+        args.push_back("GLESDynamicVersion,EncryptUserData=off,Vulkan,VulkanNullOptionalDeviceExtensions,VulkanIgnoredHandles");
+        args.push_back("-cache");
+        args.push_back(cache_dir);
+    }
+
     // -port sets the console port; ADB connects on port+1 (serial = emulator-5554, ADB = 5555)
     args.push_back("-port");        args.push_back("5554");
     return args;
