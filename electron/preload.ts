@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('nunu', {
     return () => ipcRenderer.removeListener('install:progress', handler)
   },
 
+  // VM launch
+  launchGame: (packageId: string) => ipcRenderer.invoke('vm:launch', packageId),
+
   // Updates
   checkUpdate: () => ipcRenderer.invoke('update:check'),
 
@@ -46,6 +49,10 @@ contextBridge.exposeInMainWorld('nunu', {
     ipcRenderer.on('safetynet:progress', handler)
     return () => ipcRenderer.removeListener('safetynet:progress', handler)
   },
+
+  // Config (~/.nunu/config.json)
+  getConfig: (key: string) => ipcRenderer.invoke('config:get', key),
+  setConfig: (key: string, value: unknown) => ipcRenderer.invoke('config:set', key, value),
 
   // Persistent store (proxied through main process)
   store: {

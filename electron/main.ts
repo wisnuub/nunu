@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell, nativeImage } from 'electron'
 import { join } from 'path'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { spawn, ChildProcess } from 'child_process'
 import Store from 'electron-store'
 import { InstallationService } from './services/InstallationService'
 import { UpdateService } from './services/UpdateService'
@@ -16,6 +17,28 @@ if (process.platform === 'win32') {
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
 const store = new Store<Record<string, unknown>>()
+
+// ── Config helpers (~/.nunu/config.json) ─────────────────────────────────────
+
+const nunuConfigPath = () => join(app.getPath('home'), '.nunu', 'config.json')
+
+function readNunuConfig(): Record<string, unknown> {
+  try {
+    const p = nunuConfigPath()
+    if (existsSync(p)) return JSON.parse(readFileSync(p, 'utf-8')) as Record<string, unknown>
+  } catch { /* ignore */ }
+  return {}
+}
+
+function writeNunuConfig(data: Record<string, unknown>) {
+  const dir = join(app.getPath('home'), '.nunu')
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  writeFileSync(nunuConfigPath(), JSON.stringify(data, null, 2))
+}
+
+// ── VM process tracker ───────────────────────────────────────────────────────
+
+let vmProcess: ChildProcess | null = null
 
 let mainWindow: BrowserWindow | null = null
 
@@ -157,6 +180,52 @@ ipcMain.handle('google:signin', async () => {
   try {
     const result = await startGoogleSignIn()
     return { success: true, ...result }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { success: false, error: message }
+  }
+})
+
+// ── Config IPC ───────────────────────────────────────────────────────────────
+
+ipcMain.handle('config:get', (_event, key: string) => {
+  return readNunuConfig()[key] ?? null
+})
+
+ipcMain.handle('config:set', (_event, key: string, value: unknown) => {
+  const config = readNunuConfig()
+  config[key] = value
+  writeNunuConfig(config)
+})
+
+// ── VM launch IPC ────────────────────────────────────────────────────────────
+
+ipcMain.handle('vm:launch', async (_event, _packageId: string) => {
+  if (!mainWindow) return { success: false, error: 'No window' }
+
+  const nunuDir = join(app.getPath('home'), '.nunu')
+  const avmBin = process.platform === 'win32'
+    ? join(nunuDir, 'avm-core', 'avm.exe')
+    : join(nunuDir, 'avm-core', 'avm')
+
+  const imageFile = join(nunuDir, 'android-13.img')
+
+  if (!existsSync(avmBin)) {
+    return { success: false, error: 'AVM core not installed. Run setup first.' }
+  }
+
+  if (!existsSync(imageFile)) {
+    return { success: false, error: 'Android image not found. Run setup first.' }
+  }
+
+  if (vmProcess) {
+    return { success: true, alreadyRunning: true }
+  }
+
+  try {
+    vmProcess = spawn(avmBin, ['--image', imageFile], { detached: false, stdio: 'ignore' })
+    vmProcess.on('exit', () => { vmProcess = null })
+    return { success: true }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     return { success: false, error: message }

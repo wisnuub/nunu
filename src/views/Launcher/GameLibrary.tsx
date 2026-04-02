@@ -11,7 +11,11 @@ export function GameLibrary() {
   const isFeaturedInstalling = featuredProgress > 0 && featuredProgress < 100
 
   const handleFeaturedAction = async () => {
-    if (isFeaturedInstalled || isFeaturedInstalling) return
+    if (isFeaturedInstalled) {
+      await window.nunu?.launchGame?.(featured.packageId)
+      return
+    }
+    if (isFeaturedInstalling) return
 
     setInstallProgress(featured.id, 1)
 
@@ -50,8 +54,13 @@ export function GameLibrary() {
         }}
       >
         {/* Background pattern */}
-        <div className="absolute inset-0 opacity-20">
-          <div className="absolute bottom-0 right-0 text-[200px] leading-none select-none">{featured.icon}</div>
+        <div className="absolute inset-0 overflow-hidden">
+          <div
+            className="absolute -bottom-6 -right-4 font-black text-[160px] leading-none select-none tracking-widest"
+            style={{ color: 'rgba(255,255,255,0.07)' }}
+          >
+            {featured.abbr}
+          </div>
         </div>
 
         {/* Content */}

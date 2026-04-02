@@ -14,7 +14,7 @@ export function GameCard({ game }: GameCardProps) {
 
   const handleAction = async () => {
     if (isInstalled) {
-      // Play — launch game (stubbed)
+      await window.nunu?.launchGame?.(game.packageId)
       return
     }
     if (isInstalling) return
@@ -51,12 +51,17 @@ export function GameCard({ game }: GameCardProps) {
     >
       {/* Art area */}
       <div
-        className="relative h-36 flex items-center justify-center text-5xl"
+        className="relative h-36 flex items-center justify-center"
         style={{
           background: `linear-gradient(135deg, ${game.gradientFrom}, ${game.gradientTo})`,
         }}
       >
-        <span>{game.icon}</span>
+        <div
+          className="px-4 py-2 rounded-xl font-black text-2xl tracking-widest text-white/90 select-none"
+          style={{ background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(6px)' }}
+        >
+          {game.abbr}
+        </div>
 
         {/* Installing overlay */}
         {isInstalling && (

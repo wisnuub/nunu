@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore } from '../../store/appStore'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -51,6 +51,20 @@ export function Settings() {
   const [launchOnStartup, setLaunchOnStartup] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateMsg, setUpdateMsg] = useState('')
+  const [clientId, setClientId] = useState('')
+  const [clientIdSaved, setClientIdSaved] = useState(false)
+
+  useEffect(() => {
+    window.nunu?.getConfig?.('googleClientId').then((val) => {
+      if (typeof val === 'string') setClientId(val)
+    })
+  }, [])
+
+  const handleSaveClientId = async () => {
+    await window.nunu?.setConfig?.('googleClientId', clientId)
+    setClientIdSaved(true)
+    setTimeout(() => setClientIdSaved(false), 2000)
+  }
 
   const handleCheckUpdate = async () => {
     setCheckingUpdate(true)
@@ -168,6 +182,36 @@ export function Settings() {
         <Row label="FPS cap" hint="Limit frame rate to reduce power consumption">
           <Toggle value={fpsCap} onChange={setFpsCap} />
         </Row>
+      </Section>
+
+      {/* Google Integration */}
+      <Section title="Google Integration">
+        <div className="px-5 py-4">
+          <p className="text-sm font-medium text-white mb-1">OAuth Client ID</p>
+          <p className="text-xs text-white/35 mb-3">
+            Create a <span className="text-white/60">Desktop app</span> OAuth 2.0 client in Google Cloud Console and paste the ID below. Required for Google Sign-In.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              placeholder="xxxxxxxx.apps.googleusercontent.com"
+              className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-[6px] text-sm text-white px-3 py-2 focus:outline-none focus:border-white/20 placeholder:text-white/20"
+            />
+            <button
+              onClick={handleSaveClientId}
+              className="shrink-0 px-4 py-2 rounded-[6px] text-sm font-medium text-white transition-all focus:outline-none"
+              style={{
+                background: clientIdSaved
+                  ? '#16A34A'
+                  : 'linear-gradient(135deg, #5B6EF5, #8B5CF6)',
+              }}
+            >
+              {clientIdSaved ? 'Saved ✓' : 'Save'}
+            </button>
+          </div>
+        </div>
       </Section>
 
       {/* Account */}

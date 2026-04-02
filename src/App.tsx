@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAppStore } from './store/appStore'
 import { OnboardingFlow } from './views/Onboarding/OnboardingFlow'
@@ -7,9 +7,10 @@ import { TitleBar } from './components/TitleBar'
 
 export default function App() {
   const { isOnboardingDone, hydrateFromStore } = useAppStore()
+  const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
-    hydrateFromStore()
+    hydrateFromStore().then(() => setHydrated(true))
   }, [hydrateFromStore])
 
   // Check for updates on launch (silent)
@@ -22,6 +23,17 @@ export default function App() {
       }
     }).catch(() => {/* silently ignore */})
   }, [isOnboardingDone])
+
+  if (!hydrated) {
+    return (
+      <div className="flex flex-col h-full w-full bg-[#0D0F14] overflow-hidden">
+        <TitleBar />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="w-8 h-8 rounded-full border-2 border-white/10 border-t-[#5B6EF5] animate-spin" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full w-full bg-[#0D0F14] overflow-hidden">

@@ -6,7 +6,8 @@ export interface Game {
   description: string
   gradientFrom: string
   gradientTo: string
-  icon: string
+  abbr: string
+  packageId: string
 }
 
 export const GAMES: Game[] = [
@@ -19,7 +20,8 @@ export const GAMES: Game[] = [
       'Drop into intense 100-player battles across massive maps. Loot, survive, and be the last one standing.',
     gradientFrom: '#1a3a2a',
     gradientTo: '#2d6a4f',
-    icon: '🎯',
+    abbr: 'PUBG',
+    packageId: 'com.tencent.ig',
   },
   {
     id: 'genshin-impact',
@@ -30,7 +32,8 @@ export const GAMES: Game[] = [
       'Explore the magical world of Teyvat with a diverse cast of characters and an epic open world.',
     gradientFrom: '#1a1a3a',
     gradientTo: '#3d2b6d',
-    icon: '⚔️',
+    abbr: 'GI',
+    packageId: 'com.miHoYo.GenshinImpact',
   },
   {
     id: 'teamfight-tactics',
@@ -41,7 +44,8 @@ export const GAMES: Game[] = [
       'Build and battle with powerful champion combinations in this auto-battler strategy game.',
     gradientFrom: '#1a2a3a',
     gradientTo: '#1e4d8c',
-    icon: '♟️',
+    abbr: 'TFT',
+    packageId: 'com.riotgames.league.teamfighttactics',
   },
   {
     id: 'mobile-legends',
@@ -52,7 +56,8 @@ export const GAMES: Game[] = [
       'Join 5v5 MOBA battles with over 100 heroes. Destroy the enemy base to claim victory.',
     gradientFrom: '#2a1a1a',
     gradientTo: '#6d1f1f',
-    icon: '🏆',
+    abbr: 'ML',
+    packageId: 'com.mobile.legends',
   },
   {
     id: 'cod-mobile',
@@ -63,7 +68,8 @@ export const GAMES: Game[] = [
       'Experience iconic multiplayer maps and modes from the Call of Duty franchise on your desktop.',
     gradientFrom: '#1a1a1a',
     gradientTo: '#2d3a1a',
-    icon: '🔫',
+    abbr: 'CoD',
+    packageId: 'com.activision.callofduty.shooter',
   },
   {
     id: 'honkai-star-rail',
@@ -74,6 +80,7 @@ export const GAMES: Game[] = [
       'Board the Astral Express and explore a universe full of wonders, mystery, and diverse civilizations.',
     gradientFrom: '#1a1a2a',
     gradientTo: '#2a1a3d',
-    icon: '🌟',
+    abbr: 'HSR',
+    packageId: 'com.HoYoverse.hkrpgoversea',
   },
 ]

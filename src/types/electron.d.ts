@@ -14,6 +14,8 @@ declare global {
         callback: (progress: { phase: string; percent: number; status: string }) => void
       ) => () => void
 
+      launchGame: (packageId: string) => Promise<{ success: boolean; alreadyRunning?: boolean; error?: string }>
+
       signInWithGoogle: () => Promise<{
         success: boolean
         email?: string
@@ -43,6 +45,9 @@ declare global {
           percent: number
         }) => void
       ) => () => void
+
+      getConfig: (key: string) => Promise<unknown>
+      setConfig: (key: string, value: unknown) => Promise<void>
 
       store: {
         get: (key: string) => Promise<unknown>
