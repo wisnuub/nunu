@@ -27,7 +27,7 @@ export function SignInStep() {
 
       setEmail(result.email ?? '')
       setState('success')
-      signIn(result.email)
+      signIn(result.email ?? '')
       setTimeout(() => setOnboardingStep('complete'), 1200)
     } catch (err) {
       setState('error')
