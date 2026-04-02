@@ -3,12 +3,9 @@ productName: nunu
 directories:
   output: release
 mac:
-  target: dmg
+  target: dir
   icon: assets/icon.icns
   category: public.app-category.games
-  entitlements: assets/entitlements.mac.plist
-  entitlementsInherit: assets/entitlements.mac.plist
-  hardenedRuntime: true
 win:
   target:
     - target: nsis
