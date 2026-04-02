@@ -75,9 +75,9 @@ export async function startGoogleSignIn(): Promise<GoogleAuthResult> {
       const code = url.searchParams.get('code')
       const error = url.searchParams.get('error')
 
-      res.writeHead(200, { 'Content-Type': 'text/html' })
-      res.end(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0D0F14;color:#fff">
-        <h2>${error ? 'Sign-in failed' : 'Signed in — you can close this tab'}</h2>
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+      res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0D0F14;color:#fff">
+        <h2>${error ? 'Sign-in failed' : 'Signed in \u2014 you can close this tab'}</h2>
       </body></html>`)
 
       // Close AFTER reading port, not before
