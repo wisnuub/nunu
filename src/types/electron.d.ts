@@ -27,6 +27,9 @@ declare global {
         error?: string
       }>
 
+      getVersion: () => Promise<string>
+      openExternal: (url: string) => Promise<void>
+
       checkUpdate: () => Promise<{
         hasUpdate: boolean
         release: unknown

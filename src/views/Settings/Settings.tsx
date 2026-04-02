@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore } from '../../store/appStore'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -51,17 +51,28 @@ export function Settings() {
   const [launchOnStartup, setLaunchOnStartup] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateMsg, setUpdateMsg] = useState('')
+  const [updateUrl, setUpdateUrl] = useState<string | null>(null)
+  const [appVersion, setAppVersion] = useState('')
   const [signingIn, setSigningIn] = useState(false)
   const [signInError, setSignInError] = useState('')
+
+  useEffect(() => {
+    window.nunu?.getVersion?.().then((v) => setAppVersion(v))
+  }, [])
 
   const handleCheckUpdate = async () => {
     setCheckingUpdate(true)
     setUpdateMsg('')
+    setUpdateUrl(null)
     try {
       const result = await window.nunu.checkUpdate()
-      if (result.hasUpdate) {
-        setUpdateMsg(`Update available: ${(result.release as { tag_name?: string })?.tag_name ?? 'new version'}`)
+      const release = result.release as { tag_name?: string; html_url?: string } | null
+      if (result.hasUpdate && release) {
+        setUpdateMsg(`v${result.installedVersion} → ${release.tag_name}`)
+        setUpdateUrl(release.html_url ?? null)
         useAppStore.getState().setHasUpdate(true, result.release as never)
+      } else if (result.error) {
+        setUpdateMsg('Could not check for updates.')
       } else {
         setUpdateMsg('You are up to date.')
       }
@@ -91,20 +102,21 @@ export function Settings() {
 
   return (
     <div className="pt-4 max-w-2xl">
-      {/* Android Engine */}
-      <Section title="Android Engine">
+      {/* Updates */}
+      <Section title="Updates">
         <Row
-          label="Installed version"
-          hint={pendingUpdate ? `Update: ${pendingUpdate.tag_name}` : undefined}
+          label="nunu"
+          hint={appVersion ? `Installed: v${appVersion}` : undefined}
         >
           <div className="flex items-center gap-3">
-            {hasUpdate && (
-              <span
-                className="px-2 py-0.5 rounded-full text-xs font-medium text-white"
+            {hasUpdate && updateUrl && (
+              <button
+                onClick={() => window.nunu?.openExternal?.(updateUrl)}
+                className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white transition-all hover:scale-105 focus:outline-none"
                 style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
               >
-                Update ready
-              </span>
+                Download update
+              </button>
             )}
             <button
               onClick={handleCheckUpdate}
@@ -117,7 +129,7 @@ export function Settings() {
         </Row>
         {updateMsg && (
           <div className="px-5 pb-4">
-            <p className="text-xs text-white/40">{updateMsg}</p>
+            <p className={`text-xs ${hasUpdate ? 'text-[#5B6EF5]' : 'text-white/40'}`}>{updateMsg}</p>
           </div>
         )}
       </Section>
@@ -247,7 +259,7 @@ export function Settings() {
           </div>
           <div className="text-center">
             <p className="text-white font-bold text-lg">nunu</p>
-            <p className="text-white/40 text-xs mt-0.5">Alpha v0.0.2</p>
+            <p className="text-white/40 text-xs mt-0.5">{appVersion ? `v${appVersion}` : 'Alpha'}</p>
             <p className="text-white/30 text-xs mt-2">Android without compromise</p>
           </div>
         </div>

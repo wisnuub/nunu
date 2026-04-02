@@ -44,6 +44,10 @@ contextBridge.exposeInMainWorld('nunu', {
   fetchGameArt: (packageId: string) => ipcRenderer.invoke('game:fetchArt', packageId),
   fetchGameBanner: (packageId: string) => ipcRenderer.invoke('game:fetchBanner', packageId),
 
+  // App info
+  getVersion: () => ipcRenderer.invoke('app:version'),
+  openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
+
   // Updates
   checkUpdate: () => ipcRenderer.invoke('update:check'),
 

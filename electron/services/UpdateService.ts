@@ -1,6 +1,4 @@
 import { app } from 'electron'
-import { join } from 'path'
-import { existsSync, readFileSync } from 'fs'
 import { get as httpsGet } from 'https'
 
 export interface AndroidRelease {
@@ -58,14 +56,15 @@ function fetchJson<T>(url: string): Promise<T> {
 
 export class UpdateService {
   private readonly apiUrl =
-    'https://api.github.com/repos/wisnuub/AVM/releases/latest'
+    'https://api.github.com/repos/wisnuub/nunu/releases/latest'
 
   async checkForUpdate(): Promise<UpdateCheckResult> {
     const installedVersion = this.getInstalledVersion()
 
     try {
       const release = await fetchJson<AndroidRelease>(this.apiUrl)
-      const latestTag = release.tag_name.replace(/^v/, '')
+      // Tags are like "alpha-v0.0.4" — strip any non-semver prefix
+      const latestTag = release.tag_name.replace(/^[a-zA-Z-]*v?/, '')
       const hasUpdate =
         installedVersion === null || this.isNewer(latestTag, installedVersion)
 
@@ -82,10 +81,8 @@ export class UpdateService {
   }
 
   private getInstalledVersion(): string | null {
-    const versionFile = join(app.getPath('home'), '.nunu', 'android-version.txt')
-    if (!existsSync(versionFile)) return null
     try {
-      return readFileSync(versionFile, 'utf-8').trim()
+      return app.getVersion()
     } catch {
       return null
     }
