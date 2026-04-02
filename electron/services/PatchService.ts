@@ -91,7 +91,7 @@ export class PatchService {
     return new Promise((resolve, reject) => {
       const hash = createHash('sha256')
       const stream = createReadStream(file)
-      stream.on('data', (chunk: Buffer) => hash.update(chunk))
+      stream.on('data', (chunk: Buffer | string) => hash.update(chunk))
       stream.on('end', () => {
         const digest = hash.digest('hex')
         resolve(digest.toLowerCase() === expected.toLowerCase())

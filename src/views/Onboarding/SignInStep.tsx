@@ -40,7 +40,7 @@ export function SignInStep() {
           src={GOOGLE_OAUTH_URL}
           style={{ width: '100%', height: '100%' }}
           webpreferences="nodeIntegration=no, contextIsolation=yes"
-          allowpopups=""
+          allowpopups={true}
         />
       </div>
 
