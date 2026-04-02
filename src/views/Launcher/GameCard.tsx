@@ -16,6 +16,8 @@ export function GameCard({ game }: GameCardProps) {
   const [artUrl, setArtUrl] = useState<string | null>(null)
   const [bannerUrl, setBannerUrl] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [launching, setLaunching] = useState(false)
+  const [launchStatus, setLaunchStatus] = useState('')
   const [launchError, setLaunchError] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -23,6 +25,15 @@ export function GameCard({ game }: GameCardProps) {
     window.nunu?.fetchGameArt?.(game.packageId).then((url) => { if (url) setArtUrl(url) })
     window.nunu?.fetchGameBanner?.(game.packageId).then((url) => { if (url) setBannerUrl(url) })
   }, [game.packageId])
+
+  // Listen for VM status updates (booting → ready)
+  useEffect(() => {
+    return window.nunu?.onVmStatus?.((evt) => {
+      if (evt.status === 'booting') setLaunchStatus('Booting…')
+      else if (evt.status === 'ready') setLaunchStatus('')
+      else if (evt.status === 'stopped') { setLaunchStatus(''); setLaunching(false) }
+    })
+  }, [])
 
   // Close menu on outside click
   useEffect(() => {
@@ -37,10 +48,14 @@ export function GameCard({ game }: GameCardProps) {
   const handleAction = async () => {
     if (isInstalled) {
       setLaunchError('')
+      setLaunching(true)
+      setLaunchStatus('Starting…')
       const result = await window.nunu?.launchGame?.(game.packageId)
+      setLaunching(false)
+      setLaunchStatus('')
       if (result && !result.success && !result.alreadyRunning) {
         setLaunchError(result.error ?? 'Failed to launch')
-        setTimeout(() => setLaunchError(''), 4000)
+        setTimeout(() => setLaunchError(''), 6000)
       }
       return
     }
@@ -123,6 +138,12 @@ export function GameCard({ game }: GameCardProps) {
         {launchError && (
           <p className="text-red-400 text-xs mb-2 leading-tight">{launchError}</p>
         )}
+        {launchStatus && !launchError && (
+          <p className="text-white/50 text-xs mb-2 leading-tight flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-full border border-white/30 border-t-white/80 animate-spin" />
+            {launchStatus}
+          </p>
+        )}
 
         <div className="flex items-center justify-between">
           <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 text-white/40 font-medium">
@@ -132,7 +153,7 @@ export function GameCard({ game }: GameCardProps) {
           <div className="flex items-center gap-1.5">
             <button
               onClick={handleAction}
-              disabled={isInstalling}
+              disabled={isInstalling || launching}
               className="px-3 py-1.5 rounded-[6px] text-xs font-semibold transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
               style={
                 isInstalled
@@ -140,7 +161,7 @@ export function GameCard({ game }: GameCardProps) {
                   : { background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)', color: '#fff' }
               }
             >
-              {isInstalling ? 'Installing…' : isInstalled ? 'Play' : 'Install'}
+              {isInstalling ? 'Installing…' : launching ? (launchStatus || 'Starting…') : isInstalled ? 'Play' : 'Install'}
             </button>
 
             {isInstalled && (

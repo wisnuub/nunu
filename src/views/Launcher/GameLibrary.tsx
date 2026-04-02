@@ -52,7 +52,17 @@ export function GameLibrary() {
 
   const [featuredArt, setFeaturedArt] = useState<string | null>(null)
   const [featuredBanner, setFeaturedBanner] = useState<string | null>(null)
+  const [featuredLaunching, setFeaturedLaunching] = useState(false)
+  const [featuredLaunchStatus, setFeaturedLaunchStatus] = useState('')
   const [featuredLaunchError, setFeaturedLaunchError] = useState('')
+
+  useEffect(() => {
+    return window.nunu?.onVmStatus?.((evt) => {
+      if (evt.status === 'booting') setFeaturedLaunchStatus('Booting…')
+      else if (evt.status === 'ready') setFeaturedLaunchStatus('')
+      else if (evt.status === 'stopped') { setFeaturedLaunchStatus(''); setFeaturedLaunching(false) }
+    })
+  }, [])
 
   useEffect(() => {
     window.nunu?.fetchGameArt?.(featured.packageId).then((url) => { if (url) setFeaturedArt(url) })
@@ -61,10 +71,15 @@ export function GameLibrary() {
 
   const handleFeaturedAction = async () => {
     if (isFeaturedInstalled) {
+      setFeaturedLaunchError('')
+      setFeaturedLaunching(true)
+      setFeaturedLaunchStatus('Starting…')
       const result = await window.nunu?.launchGame?.(featured.packageId)
+      setFeaturedLaunching(false)
+      setFeaturedLaunchStatus('')
       if (result && !result.success && !result.alreadyRunning) {
         setFeaturedLaunchError(result.error ?? 'Failed to launch')
-        setTimeout(() => setFeaturedLaunchError(''), 4000)
+        setTimeout(() => setFeaturedLaunchError(''), 6000)
       }
       return
     }
@@ -138,12 +153,18 @@ export function GameLibrary() {
                 {featuredLaunchError && (
                   <p className="text-red-400 text-xs mt-1">{featuredLaunchError}</p>
                 )}
+                {featuredLaunchStatus && !featuredLaunchError && (
+                  <p className="text-white/60 text-xs mt-1 flex items-center gap-1.5">
+                    <span className="inline-block w-2.5 h-2.5 rounded-full border border-white/30 border-t-white/80 animate-spin" />
+                    {featuredLaunchStatus}
+                  </p>
+                )}
               </div>
             </div>
 
             <button
               onClick={handleFeaturedAction}
-              disabled={isFeaturedInstalling}
+              disabled={isFeaturedInstalling || featuredLaunching}
               className="px-8 py-3 rounded-[8px] text-white font-semibold text-sm transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none disabled:opacity-50 shrink-0"
               style={
                 isFeaturedInstalled
@@ -153,6 +174,8 @@ export function GameLibrary() {
             >
               {isFeaturedInstalling
                 ? `Installing… ${featuredProgress}%`
+                : featuredLaunching
+                ? (featuredLaunchStatus || 'Starting…')
                 : isFeaturedInstalled
                 ? '▶ Play Now'
                 : '⬇ Install'}

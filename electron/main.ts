@@ -259,38 +259,149 @@ ipcMain.handle('config:set', (_event, key: string, value: unknown) => {
   writeNunuConfig(config)
 })
 
+// ── VM helpers ───────────────────────────────────────────────────────────────
+
+function findAvmBinary(): string | null {
+  const home = app.getPath('home')
+  const candidates = [
+    join(home, '.nunu', 'avm-core', 'avm'),
+    // dev build locations
+    join(home, 'Documents', 'GitHub', 'AVM', 'build', 'avm'),
+    '/usr/local/bin/avm',
+  ]
+  for (const p of candidates) {
+    if (existsSync(p)) return p
+  }
+  return null
+}
+
+function findAndroidImageDir(): string | null {
+  const home = app.getPath('home')
+  const imageRelPath = 'system-images/android-34/google_apis_playstore/arm64-v8a'
+  const candidates = [
+    join('/opt/homebrew/share/android-commandlinetools', imageRelPath),
+    join('/usr/local/share/android-commandlinetools', imageRelPath),
+    join(home, 'Library/Android/sdk', imageRelPath),
+    join(home, 'Android/Sdk', imageRelPath),
+    ...(process.env.ANDROID_SDK_ROOT
+      ? [join(process.env.ANDROID_SDK_ROOT, imageRelPath)]
+      : []),
+    ...(process.env.ANDROID_HOME
+      ? [join(process.env.ANDROID_HOME, imageRelPath)]
+      : []),
+  ]
+  for (const p of candidates) {
+    if (existsSync(p)) return p
+  }
+  return null
+}
+
+function runAdb(args: string[]): Promise<string> {
+  return new Promise((resolve) => {
+    const proc = spawn('adb', args, { stdio: ['ignore', 'pipe', 'ignore'] })
+    let out = ''
+    proc.stdout.on('data', (d: Buffer) => { out += d.toString() })
+    proc.on('close', () => resolve(out))
+    proc.on('error', () => resolve(''))
+  })
+}
+
+async function getEmulatorSerial(): Promise<string | null> {
+  const out = await runAdb(['devices'])
+  const match = out.match(/^(emulator-\d+)\s+device$/m)
+  return match ? match[1] : null
+}
+
+async function waitForAndroidBoot(timeoutMs = 120_000): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const serial = await getEmulatorSerial()
+    if (serial) {
+      const prop = await runAdb(['-s', serial, 'shell', 'getprop', 'sys.boot_completed'])
+      if (prop.trim() === '1') return serial
+    }
+    await new Promise<void>((r) => setTimeout(r, 3000))
+  }
+  return null
+}
+
+async function launchAppOnDevice(serial: string, packageId: string): Promise<void> {
+  await runAdb(['-s', serial, 'shell', 'monkey',
+    '-p', packageId, '-c', 'android.intent.category.LAUNCHER', '1'])
+}
+
 // ── VM launch IPC ────────────────────────────────────────────────────────────
 
-ipcMain.handle('vm:launch', async (_event, _packageId: string) => {
+ipcMain.handle('vm:launch', async (_event, packageId: string) => {
   if (!mainWindow) return { success: false, error: 'No window' }
 
-  const nunuDir = join(app.getPath('home'), '.nunu')
-  const avmBin = process.platform === 'win32'
-    ? join(nunuDir, 'avm-core', 'avm.exe')
-    : join(nunuDir, 'avm-core', 'avm')
-
-  const imageFile = join(nunuDir, 'android-13.img')
-
-  if (!existsSync(avmBin)) {
-    return { success: false, error: 'AVM core not installed. Run setup first.' }
-  }
-
-  if (!existsSync(imageFile)) {
-    return { success: false, error: 'Android image not found. Run setup first.' }
-  }
-
+  // ── 1. If VM already running, just launch the app ────────────────────────
   if (vmProcess) {
+    const serial = await getEmulatorSerial()
+    if (serial) {
+      const prop = await runAdb(['-s', serial, 'shell', 'getprop', 'sys.boot_completed'])
+      if (prop.trim() === '1') {
+        await launchAppOnDevice(serial, packageId)
+        return { success: true, alreadyRunning: true }
+      }
+    }
     return { success: true, alreadyRunning: true }
   }
 
+  // ── 2. Find AVM binary ────────────────────────────────────────────────────
+  const avmBin = findAvmBinary()
+  if (!avmBin) {
+    return {
+      success: false,
+      error: 'AVM not found. Expected at ~/.nunu/avm-core/avm — see github.com/wisnuub/AVM.',
+    }
+  }
+
+  // ── 3. Find Android system image ─────────────────────────────────────────
+  const imageDir = findAndroidImageDir()
+  if (!imageDir) {
+    return {
+      success: false,
+      error: 'Android image not found.\nRun: sdkmanager "system-images;android-34;google_apis_playstore;arm64-v8a"',
+    }
+  }
+
+  // ── 4. Boot the VM ────────────────────────────────────────────────────────
   try {
-    vmProcess = spawn(avmBin, ['--image', imageFile], { detached: false, stdio: 'ignore' })
-    vmProcess.on('exit', () => { vmProcess = null })
-    return { success: true }
+    mainWindow.webContents.send('vm:status', { status: 'booting' })
+    vmProcess = spawn(avmBin, ['--image', imageDir], {
+      detached: false,
+      stdio: 'ignore',
+      env: { ...process.env },
+    })
+    vmProcess.on('exit', () => {
+      vmProcess = null
+      mainWindow?.webContents.send('vm:status', { status: 'stopped' })
+    })
+    vmProcess.on('error', (err) => {
+      vmProcess = null
+      mainWindow?.webContents.send('vm:status', { status: 'error', error: err.message })
+    })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     return { success: false, error: message }
   }
+
+  // ── 5. Wait for Android to finish booting ────────────────────────────────
+  const serial = await waitForAndroidBoot(120_000)
+  if (!serial) {
+    return {
+      success: false,
+      error: 'Android took too long to boot. Try again once the emulator window is ready.',
+    }
+  }
+
+  mainWindow.webContents.send('vm:status', { status: 'ready' })
+
+  // ── 6. Launch the game ────────────────────────────────────────────────────
+  await launchAppOnDevice(serial, packageId)
+
+  return { success: true }
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────

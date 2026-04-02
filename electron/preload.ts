@@ -34,6 +34,11 @@ contextBridge.exposeInMainWorld('nunu', {
 
   // VM launch
   launchGame: (packageId: string) => ipcRenderer.invoke('vm:launch', packageId),
+  onVmStatus: (callback: (event: { status: string; error?: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { status: string; error?: string }) => callback(data)
+    ipcRenderer.on('vm:status', handler)
+    return () => ipcRenderer.removeListener('vm:status', handler)
+  },
 
   // Play Store art
   fetchGameArt: (packageId: string) => ipcRenderer.invoke('game:fetchArt', packageId),

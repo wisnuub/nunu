@@ -15,6 +15,7 @@ declare global {
       ) => () => void
 
       launchGame: (packageId: string) => Promise<{ success: boolean; alreadyRunning?: boolean; error?: string }>
+      onVmStatus: (callback: (event: { status: string; error?: string }) => void) => () => void
       fetchGameArt: (packageId: string) => Promise<string | null>
       fetchGameBanner: (packageId: string) => Promise<string | null>
 
