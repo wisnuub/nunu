@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('nunu', {
   // Updates
   checkUpdate: () => ipcRenderer.invoke('update:check'),
 
+  // Google Sign-In
+  signInWithGoogle: () => ipcRenderer.invoke('google:signin'),
+
   // SafetyNet
   setupSafetyNet: () => ipcRenderer.invoke('safetynet:setup'),
   onSafetyNetProgress: (callback: (event: SafetyNetProgressEvent) => void) => {

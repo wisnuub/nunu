@@ -14,6 +14,14 @@ declare global {
         callback: (progress: { phase: string; percent: number; status: string }) => void
       ) => () => void
 
+      signInWithGoogle: () => Promise<{
+        success: boolean
+        email?: string
+        name?: string
+        picture?: string
+        error?: string
+      }>
+
       checkUpdate: () => Promise<{
         hasUpdate: boolean
         release: unknown

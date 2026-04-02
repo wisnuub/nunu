@@ -5,6 +5,7 @@ import Store from 'electron-store'
 import { InstallationService } from './services/InstallationService'
 import { UpdateService } from './services/UpdateService'
 import { SafetyNetService } from './services/SafetyNetService'
+import { startGoogleSignIn } from './services/GoogleAuthService'
 
 // Handle Windows NSIS squirrel events
 if (process.platform === 'win32') {
@@ -147,6 +148,18 @@ ipcMain.handle('safetynet:setup', async () => {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     return { passed: false, basicIntegrity: false, ctsProfile: false, error: message }
+  }
+})
+
+// ── Google Sign-In IPC ───────────────────────────────────────────────────────
+
+ipcMain.handle('google:signin', async () => {
+  try {
+    const result = await startGoogleSignIn()
+    return { success: true, ...result }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { success: false, error: message }
   }
 })
 
