@@ -228,19 +228,47 @@ ipcMain.handle('game:fetchBanner', async (_event, packageId: string) => {
   try {
     const html = await fetchPlayStorePage(packageId)
 
-    // Get the icon URL so we can exclude it
+    // The icon hash — exclude it from candidates
     const iconMatch = html.match(/<meta property="og:image" content="([^"]+)"/)
     const iconHash = iconMatch ? iconMatch[1].split('/').pop()?.split('=')[0] : null
 
-    // Collect all play-lh image URLs from the page
-    const allUrls = [...html.matchAll(/https:\/\/play-lh\.googleusercontent\.com\/([^"'\s\\]+)/g)]
-      .map(m => `https://play-lh.googleusercontent.com/${m[1].split('=')[0]}`)
-      .filter((v, i, arr) => arr.indexOf(v) === i) // deduplicate
+    // Extract all play-lh URLs with their embedded size hints (=wW-hH)
+    // Play Store encodes: icon = square (w==h), feature graphic = landscape (w >> h, typically 1024x500)
+    const matches = [...html.matchAll(
+      /https:\/\/play-lh\.googleusercontent\.com\/([^"'\s\\]+)/g
+    )]
 
-    // Pick first URL that isn't the icon — this is the feature graphic / banner
-    const bannerBase = allUrls.find(u => !iconHash || !u.includes(iconHash))
-    if (bannerBase) {
-      const bannerUrl = `${bannerBase}=w1024-h500-rw`
+    interface ImageCandidate { base: string; w: number; h: number }
+    const candidates: ImageCandidate[] = []
+    const seen = new Set<string>()
+
+    for (const m of matches) {
+      const full = `https://play-lh.googleusercontent.com/${m[1]}`
+      const base = full.split('=')[0]
+      if (seen.has(base)) continue
+      seen.add(base)
+
+      // Skip the app icon
+      if (iconHash && base.includes(iconHash)) continue
+
+      // Parse embedded dimensions if present (e.g. =w2560-h1440-rw)
+      const dimMatch = full.match(/=w(\d+)-h(\d+)/)
+      if (dimMatch) {
+        const w = parseInt(dimMatch[1])
+        const h = parseInt(dimMatch[2])
+        // Feature graphic is always landscape (w > h) and large (w >= 500)
+        if (w > h && w >= 500) {
+          candidates.push({ base, w, h })
+        }
+      }
+    }
+
+    // Pick the widest landscape image (most likely to be the feature graphic)
+    candidates.sort((a, b) => b.w - a.w)
+    const best = candidates[0]
+
+    if (best) {
+      const bannerUrl = `${best.base}=w1024-h500-rw`
       bannerCache.set(packageId, bannerUrl)
       return bannerUrl
     }

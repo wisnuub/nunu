@@ -60,6 +60,9 @@ export async function startGoogleSignIn(): Promise<GoogleAuthResult> {
 
   return new Promise((resolve, reject) => {
     // Start loopback server on a random available port
+    // Capture port here — server.address() returns null after server.close()
+    let serverPort = 0
+
     const server = createServer(async (req, res) => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1')
 
@@ -72,11 +75,13 @@ export async function startGoogleSignIn(): Promise<GoogleAuthResult> {
       const code = url.searchParams.get('code')
       const error = url.searchParams.get('error')
 
-      // Close browser tab with a friendly page
       res.writeHead(200, { 'Content-Type': 'text/html' })
       res.end(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0D0F14;color:#fff">
-        <h2>${error ? '❌ Sign-in failed' : '✓ Signed in — you can close this tab'}</h2>
+        <h2>${error ? 'Sign-in failed' : 'Signed in — you can close this tab'}</h2>
       </body></html>`)
+
+      // Close AFTER reading port, not before
+      const port = serverPort
       server.close()
 
       if (error || !code) {
@@ -85,7 +90,6 @@ export async function startGoogleSignIn(): Promise<GoogleAuthResult> {
       }
 
       try {
-        const { port } = server.address() as AddressInfo
         const tokenRes = await exchangeCodeForToken(clientId, code, verifier, `http://127.0.0.1:${port}/callback`)
         const profile = await fetchUserProfile(tokenRes.access_token)
         resolve(profile)
@@ -95,8 +99,8 @@ export async function startGoogleSignIn(): Promise<GoogleAuthResult> {
     })
 
     server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address() as AddressInfo
-      const authUrl = buildAuthURL(clientId, port, challenge)
+      serverPort = (server.address() as AddressInfo).port
+      const authUrl = buildAuthURL(clientId, serverPort, challenge)
       shell.openExternal(authUrl)
     })
 
