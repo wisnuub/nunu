@@ -1,103 +1,90 @@
 # nunu — Android without compromise
 
-A native macOS launcher for running Android games on Apple Silicon. Built on top of [AVM](https://github.com/wisnuub/AVM), nunu provides a polished installer, game library, Google account integration, and automatic Android engine updates.
+Run Android games natively on your Mac or Windows PC. nunu handles everything — downloading the Android engine, configuring device certification, and giving you a game library to install and launch titles directly.
+
+---
+
+## Download
+
+Head to [Releases](https://github.com/wisnuub/nunu/releases) and grab the latest build for your platform:
+
+| Platform | File | Notes |
+|---|---|---|
+| macOS (Apple Silicon) | `nunu-x.x.x.dmg` | Open, drag to Applications, right-click → Open on first launch |
+| Windows (x64) | `nunu Setup x.x.x.exe` | Run the installer; click "More info → Run anyway" if SmartScreen appears |
 
 ---
 
 ## Features
 
-- **One-click setup** — downloads and configures the AVM engine and Android image automatically
-- **Game library** — install and launch popular Android titles directly from the launcher
-- **Google Sign-In** — link your account to sync game saves and purchases
-- **Delta updates** — AVM engine updates are downloaded as small patches rather than full images, saving bandwidth
-- **Native performance** — runs on Apple Silicon using hardware virtualization (Hypervisor.framework)
+- **Guided setup** — first launch walks you through downloading the Android engine and configuring everything automatically
+- **Device certification** — sets up Google Play compatibility so certified apps work out of the box
+- **Game library** — browse, install, and launch popular Android games from one place
+- **Google account** — sign in to sync saves and purchases across devices
+- **Smart updates** — Android engine updates download as small delta patches rather than full images
 
-## Requirements
+---
 
-- macOS 13 (Ventura) or later
-- Apple Silicon (M1 / M2 / M3)
-- ~5 GB free disk space
+## Build from source
 
-## Build
+**Requirements:** Node.js 20+, npm, Git
 
 ```bash
-git clone https://github.com/wisnuub/nemu
-cd nemu
-swift build -c release
+git clone https://github.com/wisnuub/nunu
+cd nunu
+npm install
 ```
 
-Run:
-
+**Development:**
 ```bash
-.build/release/nunu
+npm run electron:dev
 ```
+
+**Package for release:**
+```bash
+npm run electron:build:mac    # → release/nunu-x.x.x.dmg
+npm run electron:build:win    # → release/nunu Setup x.x.x.exe
+```
+
+---
 
 ## Architecture
 
 ```
-nunu (this repo)          AVM (engine backend)
-─────────────────         ──────────────────────────
-SwiftUI launcher    ←──── C++ hypervisor + GPU + input
-UpdateService       ←──── GitHub releases / update-manifest.json
-PatchService        ←──── xdelta3 delta patches
-InstallationService ←──── ADB + QEMU lifecycle
+nunu (this repo)                  AVM (engine backend)
+────────────────────────          ─────────────────────────────
+Electron + React launcher   ←──── C++ hypervisor + GPU + input
+UpdateService (TS)          ←──── GitHub releases / update-manifest.json
+PatchService (TS)           ←──── xdelta3 delta patches
+SafetyNetService (TS)       ←──── ADB device fingerprint + GMS setup
+InstallationService (TS)    ←──── ADB + QEMU lifecycle
 ```
+
+**First launch** runs the full onboarding flow: download → device certification → Google Sign-In.  
+**Every launch after that** goes straight to your game library — no setup screens.
 
 ### Update / patch system
 
-AVM publishes an `update-manifest.json` in each GitHub release. nunu fetches this manifest on startup (and on demand in Settings → Android Engine) to determine if a newer Android image is available.
+AVM publishes an `update-manifest.json` asset in each GitHub release. nunu checks this on startup and in Settings → Android Engine. If you already have a base image installed, it downloads only a delta patch (xdelta3 format) — typically 30–100× smaller than a full image.
 
-If the user already has a compatible base image installed, nunu downloads only a delta patch (xdelta3 format) — typically 30–100× smaller than a full image download. If xdelta3 is not installed, it falls back to a full image download automatically.
-
-**Install xdelta3 for patch support:**
-
+For patch support, install xdelta3:
 ```bash
+# macOS
 brew install xdelta
+
+# Windows — add xdelta3.exe to PATH
 ```
+If xdelta3 is not available, nunu falls back to a full image download automatically.
 
-### Manifest format
+### Google Sign-In setup (for developers)
 
-AVM releases include `update-manifest.json` with this structure:
+Replace the placeholder `clientID` in [electron/services/InstallationService.ts](electron/services/InstallationService.ts) and the webview URL in [src/views/Onboarding/SignInStep.tsx](src/views/Onboarding/SignInStep.tsx) with your OAuth 2.0 client ID from Google Cloud Console. Register `nunu://oauth` as an authorized redirect URI.
 
-```json
-{
-  "schema": 1,
-  "android": {
-    "latest": "13.0.2",
-    "releases": [
-      {
-        "version": "13.0.2",
-        "release_notes": "Security patches, GPU compatibility improvements",
-        "full_image": {
-          "url": "https://github.com/wisnuub/AVM/releases/download/v13.0.2/android-13-arm64.img.gz",
-          "size": 892000000,
-          "sha256": "<hex>"
-        },
-        "patches": [
-          {
-            "from": "13.0.1",
-            "to": "13.0.2",
-            "url": "https://github.com/wisnuub/AVM/releases/download/v13.0.2/android-13-arm64-13.0.1-to-13.0.2.xdelta",
-            "size": 45678901,
-            "sha256": "<hex>"
-          }
-        ]
-      }
-    ]
-  },
-  "avm": {
-    "latest": "1.0.0"
-  }
-}
-```
-
-## Google Sign-In setup
-
-Replace the placeholder `clientID` in [GoogleSignInView.swift](Sources/nunu/Views/GoogleSignInView.swift) with your OAuth 2.0 client ID from the Google Cloud Console. Register `nunu://oauth` as an authorized redirect URI.
+---
 
 ## Data location
 
-All runtime data is stored in `~/.nunu/`:
+All runtime data lives in `~/.nunu/`:
 
 | File | Purpose |
 |---|---|
