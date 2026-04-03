@@ -14,7 +14,7 @@ function SystemAppTile({ packageId, name }: { packageId: string; name: string })
   }, [packageId])
 
   const handleLaunch = async () => {
-    const result = await window.nunu?.launchGame?.(packageId)
+    const result = await window.nunu?.launchGame?.(packageId, name, { memoryMb: 4096, cores: 4 })
     if (result && !result.success && !result.alreadyRunning) {
       setLaunchError(result.error ?? 'Failed to launch')
       setTimeout(() => setLaunchError(''), 3000)
@@ -74,7 +74,7 @@ export function GameLibrary() {
       setFeaturedLaunchError('')
       setFeaturedLaunching(true)
       setFeaturedLaunchStatus('Starting…')
-      const result = await window.nunu?.launchGame?.(featured.packageId)
+      const result = await window.nunu?.launchGame?.(featured.packageId, featured.name, featured.defaultConfig)
       setFeaturedLaunching(false)
       setFeaturedLaunchStatus('')
       if (result && !result.success && !result.alreadyRunning) {
