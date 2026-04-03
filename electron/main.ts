@@ -134,20 +134,72 @@ ipcMain.handle('install:start', async (_event, options: { androidVersion?: strin
   }
 })
 
+// Game ID → Play Store package mapping (mirrors games.ts)
+const GAME_PACKAGES: Record<string, string> = {
+  'pubg-mobile':        'com.tencent.ig',
+  'genshin-impact':     'com.miHoYo.GenshinImpact',
+  'teamfight-tactics':  'com.riotgames.league.teamfighttactics',
+  'mobile-legends':     'com.mobile.legends',
+  'cod-mobile':         'com.activision.callofduty.shooter',
+  'honkai-star-rail':   'com.HoYoverse.hkrpgoversea',
+}
+
 ipcMain.handle('install:game', async (_event, gameId: string) => {
   if (!mainWindow) return { success: false, error: 'No window' }
 
-  const service = new InstallationService((progress) => {
-    mainWindow?.webContents.send('install:progress', progress)
-  })
+  const packageId = GAME_PACKAGES[gameId]
+  if (!packageId) return { success: false, error: `Unknown game: ${gameId}` }
 
-  try {
-    await service.installGame(gameId)
-    return { success: true }
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err)
-    return { success: false, error: message }
+  const send = (percent: number, status: string) =>
+    mainWindow?.webContents.send('install:progress', { phase: 'game', percent, status })
+
+  // Boot VM if not already running
+  if (!vmProcess) {
+    const avmBin = findAvmBinary()
+    if (!avmBin) return { success: false, error: 'AVM engine not found. Please reinstall nunu.' }
+    const imageDir = findAndroidImageDir()
+    if (!imageDir) return {
+      success: false,
+      error: 'Android image not found.\nRun: sdkmanager "system-images;android-34;google_apis_playstore;arm64-v8a"',
+    }
+
+    try {
+      send(5, 'Starting Android…')
+      mainWindow.webContents.send('vm:status', { status: 'booting' })
+      vmProcess = spawn(avmBin, ['--image', imageDir, '--memory', '4096', '--cores', '4'], {
+        detached: false, stdio: 'ignore', env: { ...process.env },
+      })
+      runningGameId = null
+      runningGameName = null
+      runningGameConfig = { memoryMb: 4096, cores: 4 }
+      vmProcess.on('exit', () => {
+        vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null
+        mainWindow?.webContents.send('vm:status', { status: 'stopped' })
+      })
+      vmProcess.on('error', () => {
+        vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null
+      })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { success: false, error: message }
+    }
   }
+
+  send(20, 'Booting Android…')
+  const serial = await waitForAndroidBoot(120_000)
+  if (!serial) return { success: false, error: 'Android took too long to boot.' }
+
+  mainWindow.webContents.send('vm:status', { status: 'ready' })
+  send(70, 'Opening Play Store…')
+
+  // Open Play Store to the game's page
+  await runAdb(['-s', serial, 'shell', 'am', 'start',
+    '-a', 'android.intent.action.VIEW',
+    '-d', `market://details?id=${packageId}`,
+  ])
+
+  send(100, 'Play Store opened — install from there')
+  return { success: true }
 })
 
 // ── Update IPC ───────────────────────────────────────────────────────────────
@@ -391,6 +443,64 @@ function stopVmProcess() {
 ipcMain.handle('vm:stop', () => {
   stopVmProcess()
   mainWindow?.webContents.send('vm:status', { status: 'stopped' })
+})
+
+ipcMain.handle('vm:isRunning', () => vmProcess !== null)
+
+ipcMain.handle('vm:boot', async (_event, config?: { memoryMb: number; cores: number }) => {
+  if (!mainWindow) return { success: false, error: 'No window' }
+  if (vmProcess) return { success: true, alreadyRunning: true }
+
+  const avmBin = findAvmBinary()
+  if (!avmBin) return { success: false, error: 'AVM engine not found. Please reinstall nunu.' }
+  const imageDir = findAndroidImageDir()
+  if (!imageDir) return {
+    success: false,
+    error: 'Android image not found.\nRun: sdkmanager "system-images;android-34;google_apis_playstore;arm64-v8a"',
+  }
+
+  const mem = config?.memoryMb ?? 4096
+  const cores = config?.cores ?? 4
+
+  try {
+    mainWindow.webContents.send('vm:status', { status: 'booting' })
+    vmProcess = spawn(avmBin, ['--image', imageDir, '--memory', String(mem), '--cores', String(cores)], {
+      detached: false, stdio: 'ignore', env: { ...process.env },
+    })
+    runningGameConfig = { memoryMb: mem, cores }
+    vmProcess.on('exit', () => {
+      vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null
+      mainWindow?.webContents.send('vm:status', { status: 'stopped' })
+    })
+    vmProcess.on('error', (err) => {
+      vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null
+      mainWindow?.webContents.send('vm:status', { status: 'error', error: err.message })
+    })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { success: false, error: message }
+  }
+
+  const serial = await waitForAndroidBoot(120_000)
+  if (!serial) return { success: false, error: 'Android took too long to boot.' }
+  mainWindow.webContents.send('vm:status', { status: 'ready' })
+  return { success: true }
+})
+
+ipcMain.handle('vm:uninstall', async () => {
+  stopVmProcess()
+  mainWindow?.webContents.send('vm:status', { status: 'stopped' })
+
+  const home = app.getPath('home')
+  const avdDir  = join(home, '.avd', 'avm_nunu.avd')
+  const avdIni  = join(home, '.avd', 'avm_nunu.ini')
+  const shaderCache = join(home, '.avd', 'shader_cache')
+
+  const { rmSync, existsSync: fsExists } = await import('fs')
+  for (const p of [avdDir, avdIni, shaderCache]) {
+    try { if (fsExists(p)) rmSync(p, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+  return { success: true }
 })
 
 ipcMain.handle('vm:launch', async (_event, options: {

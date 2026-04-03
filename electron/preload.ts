@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld('nunu', {
     return () => ipcRenderer.removeListener('install:progress', handler)
   },
 
+  // VM controls
+  bootVm: (config?: { memoryMb: number; cores: number }) => ipcRenderer.invoke('vm:boot', config),
+  stopVm: () => ipcRenderer.invoke('vm:stop'),
+  uninstallAndroid: () => ipcRenderer.invoke('vm:uninstall'),
+  isVmRunning: () => ipcRenderer.invoke('vm:isRunning') as Promise<boolean>,
+
   // VM launch
   launchGame: (
     packageId: string,
@@ -39,7 +45,6 @@ contextBridge.exposeInMainWorld('nunu', {
     config: { memoryMb: number; cores: number },
     forceRestart?: boolean,
   ) => ipcRenderer.invoke('vm:launch', { packageId, gameName, config, forceRestart }),
-  stopVm: () => ipcRenderer.invoke('vm:stop'),
   onVmStatus: (callback: (event: { status: string; error?: string }) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: { status: string; error?: string }) => callback(data)
     ipcRenderer.on('vm:status', handler)

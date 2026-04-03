@@ -44,10 +44,12 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 export function Settings() {
   const { hasUpdate, pendingUpdate, isSignedIn, userEmail, signOut, signIn } = useAppStore()
 
+  const FPS_STEPS = [1, 15, 30, 45, 60]
+
   const [ram, setRam] = useState(4)
   const [cores, setCores] = useState(4)
   const [resolution, setResolution] = useState('1920x1080')
-  const [fpsCap, setFpsCap] = useState(false)
+  const [fpsIndex, setFpsIndex] = useState(4) // default: 60
   const [launchOnStartup, setLaunchOnStartup] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateMsg, setUpdateMsg] = useState('')
@@ -55,10 +57,51 @@ export function Settings() {
   const [appVersion, setAppVersion] = useState('')
   const [signingIn, setSigningIn] = useState(false)
   const [signInError, setSignInError] = useState('')
+  const [vmRunning, setVmRunning] = useState(false)
+  const [vmBusy, setVmBusy] = useState(false)
+  const [vmError, setVmError] = useState('')
+  const [uninstalling, setUninstalling] = useState(false)
+  const [uninstallDone, setUninstallDone] = useState(false)
 
   useEffect(() => {
     window.nunu?.getVersion?.().then((v) => setAppVersion(v))
+    window.nunu?.isVmRunning?.().then((r) => setVmRunning(r))
   }, [])
+
+  useEffect(() => {
+    return window.nunu?.onVmStatus?.((evt) => {
+      if (evt.status === 'booting') { setVmRunning(false); setVmBusy(true) }
+      else if (evt.status === 'ready') { setVmRunning(true); setVmBusy(false) }
+      else if (evt.status === 'stopped') { setVmRunning(false); setVmBusy(false) }
+      else if (evt.status === 'error') { setVmRunning(false); setVmBusy(false); setVmError(evt.error ?? 'Error') }
+    })
+  }, [])
+
+  const handleStartVm = async () => {
+    setVmError('')
+    setVmBusy(true)
+    const result = await window.nunu?.bootVm?.({ memoryMb: ram * 1024, cores })
+    if (result && !result.success && !result.alreadyRunning) {
+      setVmError(result.error ?? 'Failed to start')
+      setVmBusy(false)
+    }
+  }
+
+  const handleStopVm = async () => {
+    setVmBusy(true)
+    await window.nunu?.stopVm?.()
+    setVmBusy(false)
+  }
+
+  const handleUninstall = async () => {
+    if (!confirm('Remove Android emulator data? This deletes the AVD and shader cache.')) return
+    setUninstalling(true)
+    await window.nunu?.uninstallAndroid?.()
+    setUninstalling(false)
+    setUninstallDone(true)
+    setVmRunning(false)
+    setTimeout(() => setUninstallDone(false), 3000)
+  }
 
   const handleCheckUpdate = async () => {
     setCheckingUpdate(true)
@@ -139,16 +182,43 @@ export function Settings() {
         <Row label="Launch on startup" hint="Start nunu when your computer boots">
           <Toggle value={launchOnStartup} onChange={setLaunchOnStartup} />
         </Row>
-        <Row label="Default Android version">
-          <select
-            value="13"
-            className="bg-white/5 border border-white/10 rounded-[6px] text-sm text-white px-3 py-1.5 focus:outline-none"
-          >
-            <option value="13">Android 13</option>
-            <option value="12">Android 12</option>
-            <option value="11">Android 11</option>
-          </select>
+        <Row
+          label="Android Emulator"
+          hint={vmBusy ? 'Starting…' : vmRunning ? 'Running' : 'Stopped'}
+        >
+          <div className="flex items-center gap-2">
+            {vmRunning ? (
+              <button
+                onClick={handleStopVm}
+                disabled={vmBusy}
+                className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white bg-red-600/70 hover:bg-red-600 transition-colors focus:outline-none disabled:opacity-50"
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                onClick={handleStartVm}
+                disabled={vmBusy}
+                className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white transition-colors focus:outline-none disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
+              >
+                {vmBusy ? 'Starting…' : 'Start'}
+              </button>
+            )}
+            <button
+              onClick={handleUninstall}
+              disabled={vmBusy || uninstalling}
+              className="px-3 py-1.5 rounded-[6px] text-xs font-medium text-red-400 border border-red-500/20 hover:bg-red-500/10 transition-colors focus:outline-none disabled:opacity-50"
+            >
+              {uninstalling ? 'Removing…' : uninstallDone ? 'Removed' : 'Uninstall'}
+            </button>
+          </div>
         </Row>
+        {vmError && (
+          <div className="px-5 pb-3">
+            <p className="text-red-400 text-xs">{vmError}</p>
+          </div>
+        )}
       </Section>
 
       {/* Performance */}
@@ -197,8 +267,21 @@ export function Settings() {
             <option value="1280x720">1280 × 720</option>
           </select>
         </Row>
-        <Row label="FPS cap" hint="Limit frame rate to reduce power consumption">
-          <Toggle value={fpsCap} onChange={setFpsCap} />
+        <Row label={`FPS cap: ${FPS_STEPS[fpsIndex]}`} hint="Limit frame rate to reduce power consumption">
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={0}
+              max={FPS_STEPS.length - 1}
+              step={1}
+              value={fpsIndex}
+              onChange={(e) => setFpsIndex(Number(e.target.value))}
+              className="w-32 accent-[#5B6EF5]"
+            />
+            <span className="text-white/50 text-xs w-10 text-right">
+              {FPS_STEPS[fpsIndex] === 1 ? 'Unlimited' : `${FPS_STEPS[fpsIndex]} fps`}
+            </span>
+          </div>
         </Row>
       </Section>
 

@@ -14,13 +14,16 @@ declare global {
         callback: (progress: { phase: string; percent: number; status: string }) => void
       ) => () => void
 
+      bootVm: (config?: { memoryMb: number; cores: number }) => Promise<{ success: boolean; alreadyRunning?: boolean; error?: string }>
+      stopVm: () => Promise<void>
+      uninstallAndroid: () => Promise<{ success: boolean }>
+      isVmRunning: () => Promise<boolean>
       launchGame: (
         packageId: string,
         gameName: string,
         config: { memoryMb: number; cores: number },
         forceRestart?: boolean,
       ) => Promise<{ success: boolean; alreadyRunning?: boolean; needsRestart?: boolean; runningGameName?: string; error?: string }>
-      stopVm: () => Promise<void>
       onVmStatus: (callback: (event: { status: string; error?: string }) => void) => () => void
       fetchGameArt: (packageId: string) => Promise<string | null>
       fetchGameBanner: (packageId: string) => Promise<string | null>

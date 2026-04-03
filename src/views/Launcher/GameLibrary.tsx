@@ -5,40 +5,68 @@ import { GameCard } from './GameCard'
 
 function SystemAppTile({ packageId, name }: { packageId: string; name: string }) {
   const [artUrl, setArtUrl] = useState<string | null>(null)
-  const [launchError, setLaunchError] = useState('')
+  const [launching, setLaunching] = useState(false)
+  const [error, setError] = useState('')
+  const [restartPrompt, setRestartPrompt] = useState<{ runningGameName: string } | null>(null)
 
   useEffect(() => {
-    window.nunu?.fetchGameArt?.(packageId).then((url) => {
-      if (url) setArtUrl(url)
-    })
+    window.nunu?.fetchGameArt?.(packageId).then((url) => { if (url) setArtUrl(url) })
   }, [packageId])
 
-  const handleLaunch = async () => {
-    const result = await window.nunu?.launchGame?.(packageId, name, { memoryMb: 4096, cores: 4 })
-    if (result && !result.success && !result.alreadyRunning) {
-      setLaunchError(result.error ?? 'Failed to launch')
-      setTimeout(() => setLaunchError(''), 3000)
+  const doLaunch = async (forceRestart?: boolean) => {
+    setError('')
+    setLaunching(true)
+    const result = await window.nunu?.launchGame?.(packageId, name, { memoryMb: 4096, cores: 4 }, forceRestart)
+    setLaunching(false)
+    if (result?.needsRestart) {
+      setRestartPrompt({ runningGameName: result.runningGameName ?? 'another game' })
+    } else if (result && !result.success && !result.alreadyRunning) {
+      setError(result.error ?? 'Failed')
+      setTimeout(() => setError(''), 4000)
     }
   }
 
   return (
-    <button
-      onClick={handleLaunch}
-      className="flex flex-col items-center gap-2 p-3 rounded-[10px] hover:bg-white/5 transition-colors focus:outline-none group"
-      title={launchError || name}
-    >
-      <div
-        className="w-14 h-14 rounded-2xl flex items-center justify-center overflow-hidden"
-        style={{ background: 'linear-gradient(135deg, #1e2232, #2a2f45)' }}
+    <>
+      {restartPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#1a1d2a] border border-white/10 rounded-[16px] shadow-2xl p-6 w-[320px] mx-4">
+            <p className="text-white/50 text-xs font-medium uppercase tracking-wider mb-1">One game at a time</p>
+            <h3 className="text-white text-base font-semibold mb-2">{restartPrompt.runningGameName} is running</h3>
+            <p className="text-white/60 text-sm mb-5">Restart to open <span className="text-white font-medium">{name}</span>?</p>
+            <div className="flex gap-2">
+              <button onClick={() => setRestartPrompt(null)} className="flex-1 py-2 rounded-[8px] text-sm font-medium text-white/60 bg-white/5 hover:bg-white/10 transition-colors focus:outline-none">Cancel</button>
+              <button onClick={() => { setRestartPrompt(null); doLaunch(true) }} className="flex-1 py-2 rounded-[8px] text-sm font-semibold text-white focus:outline-none" style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}>Restart &amp; Open</button>
+            </div>
+          </div>
+        </div>
+      )}
+      <button
+        onClick={() => doLaunch()}
+        disabled={launching}
+        className="flex flex-col items-center gap-2 p-3 rounded-[10px] hover:bg-white/5 transition-colors focus:outline-none group disabled:opacity-60"
+        title={error || name}
       >
-        {artUrl ? (
-          <img src={artUrl} alt={name} className="w-full h-full object-cover rounded-2xl" />
-        ) : (
-          <span className="text-white/30 text-xs font-bold">{name[0]}</span>
-        )}
-      </div>
-      <span className="text-white/50 text-xs font-medium group-hover:text-white/80 transition-colors">{name}</span>
-    </button>
+        <div
+          className="relative w-14 h-14 rounded-2xl flex items-center justify-center overflow-hidden"
+          style={{ background: 'linear-gradient(135deg, #1e2232, #2a2f45)' }}
+        >
+          {artUrl ? (
+            <img src={artUrl} alt={name} className="w-full h-full object-cover rounded-2xl" />
+          ) : (
+            <span className="text-white/30 text-xs font-bold">{name[0]}</span>
+          )}
+          {launching && (
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-2xl">
+              <span className="w-4 h-4 rounded-full border border-white/30 border-t-white animate-spin" />
+            </div>
+          )}
+        </div>
+        <span className={`text-xs font-medium transition-colors ${error ? 'text-red-400' : 'text-white/50 group-hover:text-white/80'}`}>
+          {error ? 'Error' : launching ? '…' : name}
+        </span>
+      </button>
+    </>
   )
 }
 

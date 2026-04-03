@@ -55,15 +55,18 @@ function fetchJson<T>(url: string): Promise<T> {
 }
 
 export class UpdateService {
+  // /releases/latest excludes pre-releases — use /releases to include them
   private readonly apiUrl =
-    'https://api.github.com/repos/wisnuub/nunu/releases/latest'
+    'https://api.github.com/repos/wisnuub/nunu/releases?per_page=1'
 
   async checkForUpdate(): Promise<UpdateCheckResult> {
     const installedVersion = this.getInstalledVersion()
 
     try {
-      const release = await fetchJson<AndroidRelease>(this.apiUrl)
-      // Tags are like "alpha-v0.0.4" — strip any non-semver prefix
+      const releases = await fetchJson<AndroidRelease[]>(this.apiUrl)
+      const release = releases[0]
+      if (!release) return { hasUpdate: false, release: null, installedVersion }
+      // Tags are like "alpha-v0.0.5" — strip any non-semver prefix
       const latestTag = release.tag_name.replace(/^[a-zA-Z-]*v?/, '')
       const hasUpdate =
         installedVersion === null || this.isNewer(latestTag, installedVersion)
