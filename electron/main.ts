@@ -137,6 +137,15 @@ ipcMain.handle('install:start', async (_event, options: { androidVersion?: strin
     return { success: true }
   }
 
+  // Check Java is available before downloading anything
+  const hasJava = await checkJavaInstalled()
+  if (!hasJava) {
+    return {
+      success: false,
+      error: 'Java not found.\n\nThe Android SDK requires Java (JDK 17+) to install.\n\nmacOS: brew install --cask temurin\nWindows: Download from adoptium.net',
+    }
+  }
+
   try {
     // ── 1. Download cmdline-tools ─────────────────────────────────────────
     const platformStr = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux'
@@ -421,7 +430,12 @@ function sysImageArch(): string {
 function downloadFile(url: string, dest: string, onProgress: (pct: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const getFunc = url.startsWith('https') ? httpsGet : httpGet
-    getFunc(url, (res) => {
+    const options = {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; nunu/1.0)',
+      },
+    }
+    getFunc(url, options, (res) => {
       if (res.statusCode === 301 || res.statusCode === 302) {
         const loc = res.headers.location
         if (loc) return downloadFile(loc, dest, onProgress).then(resolve).catch(reject)
@@ -466,6 +480,7 @@ function runSdkManager(
     const proc = spawn(bin, args, { env, stdio: ['pipe', 'pipe', 'pipe'] })
     if (stdinData) { proc.stdin?.write(stdinData); proc.stdin?.end() }
     let buf = ''
+    let stderrOutput = ''
     proc.stdout?.on('data', (d: Buffer) => {
       buf += d.toString()
       const lines = buf.split('\n')
@@ -473,13 +488,41 @@ function runSdkManager(
       for (const l of lines) onLine?.(l)
     })
     proc.stderr?.on('data', (d: Buffer) => {
-      buf += d.toString()
+      const text = d.toString()
+      stderrOutput += text
+      buf += text
       const lines = buf.split('\n')
       buf = lines.pop() ?? ''
       for (const l of lines) onLine?.(l)
     })
-    proc.on('close', (code) => (code === 0 || code === 1) ? resolve() : reject(new Error(`sdkmanager exited ${code}`)))
-    proc.on('error', reject)
+    proc.on('close', (code) => {
+      if (code === 0 || code === 1) {
+        // Exit code 1 from sdkmanager often just means "licenses already accepted" — treat as success
+        // but if stderr contains a clear error signal, reject
+        if (code === 1 && stderrOutput.toLowerCase().includes('error')) {
+          reject(new Error(`sdkmanager failed: ${stderrOutput.slice(0, 300)}`))
+        } else {
+          resolve()
+        }
+      } else {
+        reject(new Error(`sdkmanager exited ${code}${stderrOutput ? ': ' + stderrOutput.slice(0, 300) : ''}`))
+      }
+    })
+    proc.on('error', (err) => {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        reject(new Error('Java not found. Please install Java (JDK 17+) and try again.'))
+      } else {
+        reject(err)
+      }
+    })
+  })
+}
+
+function checkJavaInstalled(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const proc = spawn('java', ['-version'], { stdio: 'ignore' })
+    proc.on('close', (code) => resolve(code === 0))
+    proc.on('error', () => resolve(false))
   })
 }
 
@@ -596,10 +639,7 @@ ipcMain.handle('vm:stop', () => {
 ipcMain.handle('vm:isRunning', () => vmProcess !== null)
 
 ipcMain.handle('vm:checkInstalled', () => {
-  const arch = sysImageArch()
-  const imageDir = join(nunuSdkRoot(), 'system-images', 'android-34', 'google_apis_playstore', arch)
-  const emulatorBin = join(nunuSdkRoot(), 'emulator', process.platform === 'win32' ? 'emulator.exe' : 'emulator')
-  return existsSync(imageDir) && existsSync(emulatorBin)
+  return findAndroidImageDir() !== null
 })
 
 ipcMain.handle('vm:boot', async (_event, config?: { memoryMb: number; cores: number }) => {
