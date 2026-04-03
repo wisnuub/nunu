@@ -40,6 +40,11 @@ jobs:
             -s - \
             native/avm/build/avm
 
+      - name: Write Google credentials
+        run: |
+          mkdir -p native/credentials
+          echo '{"clientId":"${{ secrets.GOOGLE_CLIENT_ID }}","clientSecret":"${{ secrets.GOOGLE_CLIENT_SECRET }}"}' > native/credentials/google.json
+
       - name: Install npm dependencies
         run: npm ci
 
@@ -88,6 +93,11 @@ jobs:
         with:
           node-version: 20
           cache: npm
+
+      - name: Write Google credentials
+        run: |
+          New-Item -ItemType Directory -Force -Path native\credentials
+          '{"clientId":"${{ secrets.GOOGLE_CLIENT_ID }}","clientSecret":"${{ secrets.GOOGLE_CLIENT_SECRET }}"}' | Out-File -FilePath native\credentials\google.json -Encoding utf8
 
       - name: Install npm dependencies
         run: npm ci

@@ -9,14 +9,16 @@ mac:
   extraResources:
     - from: native/avm/build/avm
       to: avm/avm
+    - from: native/credentials/google.json
+      to: credentials/google.json
 win:
   target:
     - target: nsis
       arch: [x64]
   icon: assets/icon.ico
   extraResources:
-    - from: native/avm/build/avm.exe
-      to: avm/avm.exe
+    - from: native/credentials/google.json
+      to: credentials/google.json
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

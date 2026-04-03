@@ -19,6 +19,7 @@ export function GameCard({ game }: GameCardProps) {
   const [launching, setLaunching] = useState(false)
   const [launchStatus, setLaunchStatus] = useState('')
   const [launchError, setLaunchError] = useState('')
+  const [restartPrompt, setRestartPrompt] = useState<{ runningGameName: string } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -45,18 +46,38 @@ export function GameCard({ game }: GameCardProps) {
     return () => document.removeEventListener('mousedown', handler)
   }, [menuOpen])
 
-  const handleAction = async () => {
-    if (isInstalled) {
-      setLaunchError('')
-      setLaunching(true)
-      setLaunchStatus('Starting…')
-      const result = await window.nunu?.launchGame?.(game.packageId)
+  const doLaunch = async (forceRestart?: boolean) => {
+    setLaunchError('')
+    setLaunching(true)
+    setLaunchStatus('Starting…')
+    const result = await window.nunu?.launchGame?.(
+      game.packageId,
+      game.name,
+      game.defaultConfig,
+      forceRestart,
+    )
+    if (result?.needsRestart) {
       setLaunching(false)
       setLaunchStatus('')
-      if (result && !result.success && !result.alreadyRunning) {
-        setLaunchError(result.error ?? 'Failed to launch')
-        setTimeout(() => setLaunchError(''), 6000)
-      }
+      setRestartPrompt({ runningGameName: result.runningGameName ?? 'another game' })
+      return
+    }
+    setLaunching(false)
+    setLaunchStatus('')
+    if (result && !result.success && !result.alreadyRunning) {
+      setLaunchError(result.error ?? 'Failed to launch')
+      setTimeout(() => setLaunchError(''), 6000)
+    }
+  }
+
+  const handleRestartConfirm = async () => {
+    setRestartPrompt(null)
+    await doLaunch(true)
+  }
+
+  const handleAction = async () => {
+    if (isInstalled) {
+      await doLaunch()
       return
     }
     if (isInstalling) return
@@ -87,6 +108,38 @@ export function GameCard({ game }: GameCardProps) {
   }
 
   return (
+    <>
+    {restartPrompt && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="bg-[#1a1d2a] border border-white/10 rounded-[16px] shadow-2xl p-6 w-[340px] mx-4">
+          <p className="text-white/50 text-xs font-medium uppercase tracking-wider mb-1">One game at a time</p>
+          <h3 className="text-white text-base font-semibold mb-1">
+            {restartPrompt.runningGameName} is running
+          </h3>
+          <p className="text-white/60 text-sm mb-1">
+            Restart for <span className="text-white font-medium">{game.name}</span>?
+          </p>
+          <p className="text-white/35 text-xs mb-5">
+            {(game.defaultConfig.memoryMb / 1024).toFixed(0)} GB RAM &middot; {game.defaultConfig.cores} cores
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setRestartPrompt(null)}
+              className="flex-1 py-2 rounded-[8px] text-sm font-medium text-white/60 bg-white/5 hover:bg-white/10 transition-colors focus:outline-none"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleRestartConfirm}
+              className="flex-1 py-2 rounded-[8px] text-sm font-semibold text-white transition-colors focus:outline-none"
+              style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
+            >
+              Restart &amp; Play
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     <div className="rounded-[12px] overflow-hidden border border-white/5 bg-[#141720] hover:border-white/10 transition-all duration-200 hover:scale-[1.01] cursor-pointer group">
       {/* Art area — banner as background, icon on top */}
       <div
@@ -197,5 +250,6 @@ export function GameCard({ game }: GameCardProps) {
         </div>
       </div>
     </div>
+    </>
   )
 }

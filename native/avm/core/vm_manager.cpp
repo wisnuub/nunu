@@ -783,6 +783,7 @@ bool VmManager::setup_sdk_avd(const std::string& sdk_root,
         << "hw.lcd.height=1080\n"
         << "hw.lcd.density=240\n"
         << "hw.initialOrientation=landscape\n"
+        << "hw.cpu.ncore=" << config_.vcpu_cores << "\n"
         << "hw.ramSize=" << config_.memory_mb << "\n"
         << "image.sysdir.1=" << rel_image_dir << "\n"
         << "showDeviceFrame=no\n"

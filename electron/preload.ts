@@ -33,7 +33,13 @@ contextBridge.exposeInMainWorld('nunu', {
   },
 
   // VM launch
-  launchGame: (packageId: string) => ipcRenderer.invoke('vm:launch', packageId),
+  launchGame: (
+    packageId: string,
+    gameName: string,
+    config: { memoryMb: number; cores: number },
+    forceRestart?: boolean,
+  ) => ipcRenderer.invoke('vm:launch', { packageId, gameName, config, forceRestart }),
+  stopVm: () => ipcRenderer.invoke('vm:stop'),
   onVmStatus: (callback: (event: { status: string; error?: string }) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: { status: string; error?: string }) => callback(data)
     ipcRenderer.on('vm:status', handler)

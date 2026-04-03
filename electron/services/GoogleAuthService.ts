@@ -12,21 +12,41 @@ export interface GoogleAuthResult {
   picture?: string
 }
 
-/** Read Google client ID from ~/.nunu/config.json or GOOGLE_CLIENT_ID env var. */
-function resolveClientId(): string | null {
-  if (process.env.GOOGLE_CLIENT_ID) return process.env.GOOGLE_CLIENT_ID
+/** Read Google credentials. Priority: env vars → bundled credentials → ~/.nunu/config.json */
+function resolveCredentials(): { clientId: string; clientSecret: string } | null {
+  let clientId: string | null = process.env.GOOGLE_CLIENT_ID ?? null
+  let clientSecret: string | null = process.env.GOOGLE_CLIENT_SECRET ?? null
 
+  // Bundled credentials (written by CI from GitHub secrets, never committed)
+  if (!clientId) {
+    try {
+      const bundledPath = app.isPackaged
+        ? join(process.resourcesPath, 'credentials', 'google.json')
+        : join(app.getAppPath(), 'native', 'credentials', 'google.json')
+      if (existsSync(bundledPath)) {
+        const creds = JSON.parse(readFileSync(bundledPath, 'utf-8'))
+        if (typeof creds.clientId === 'string') clientId = creds.clientId
+        if (typeof creds.clientSecret === 'string') clientSecret = creds.clientSecret
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Local override (~/.nunu/config.json) — for developers / custom OAuth apps
   try {
     const configPath = join(app.getPath('home'), '.nunu', 'config.json')
     if (existsSync(configPath)) {
       const config = JSON.parse(readFileSync(configPath, 'utf-8'))
-      if (typeof config.googleClientId === 'string') return config.googleClientId
+      if (typeof config.googleClientId === 'string') clientId = config.googleClientId
+      if (typeof config.googleClientSecret === 'string') clientSecret = config.googleClientSecret
     }
   } catch {
     // ignore
   }
 
-  return null
+  if (!clientId) return null
+  return { clientId, clientSecret: clientSecret ?? '' }
 }
 
 function base64url(buf: Buffer): string {
@@ -45,14 +65,21 @@ function sha256(plain: string): Buffer {
  *   Type: Desktop app
  *   No redirect URIs needed (http://127.0.0.1 is allowed by default for Desktop clients)
  *
- * Then set the client ID in ~/.nunu/config.json:
- *   { "googleClientId": "YOUR_CLIENT_ID.apps.googleusercontent.com" }
+ * Then set credentials in ~/.nunu/config.json:
+ *   {
+ *     "googleClientId": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+ *     "googleClientSecret": "YOUR_CLIENT_SECRET"
+ *   }
+ *
+ * Note: even for Desktop app clients, Google requires client_secret in the token exchange.
+ * It is not truly secret for installed apps, but the field must be present.
  */
 export async function startGoogleSignIn(): Promise<GoogleAuthResult> {
-  const clientId = resolveClientId()
-  if (!clientId) {
+  const creds = resolveCredentials()
+  if (!creds) {
     throw new Error('NO_CLIENT_ID')
   }
+  const { clientId, clientSecret } = creds
 
   // PKCE: code verifier + challenge
   const verifier = base64url(randomBytes(32))
@@ -90,7 +117,7 @@ export async function startGoogleSignIn(): Promise<GoogleAuthResult> {
       }
 
       try {
-        const tokenRes = await exchangeCodeForToken(clientId, code, verifier, `http://127.0.0.1:${port}/callback`)
+        const tokenRes = await exchangeCodeForToken(clientId, clientSecret, code, verifier, `http://127.0.0.1:${port}/callback`)
         const profile = await fetchUserProfile(tokenRes.access_token)
         resolve(profile)
       } catch (err) {
@@ -129,17 +156,20 @@ function buildAuthURL(clientId: string, port: number, challenge: string): string
 
 async function exchangeCodeForToken(
   clientId: string,
+  clientSecret: string,
   code: string,
   verifier: string,
   redirectUri: string
 ): Promise<{ access_token: string }> {
-  const body = new URLSearchParams({
+  const params: Record<string, string> = {
     code,
     client_id: clientId,
     redirect_uri: redirectUri,
     grant_type: 'authorization_code',
     code_verifier: verifier,
-  })
+  }
+  if (clientSecret) params.client_secret = clientSecret
+  const body = new URLSearchParams(params)
 
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',

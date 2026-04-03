@@ -39,6 +39,9 @@ function writeNunuConfig(data: Record<string, unknown>) {
 // ── VM process tracker ───────────────────────────────────────────────────────
 
 let vmProcess: ChildProcess | null = null
+let runningGameId: string | null = null
+let runningGameName: string | null = null
+let runningGameConfig: { memoryMb: number; cores: number } | null = null
 
 let mainWindow: BrowserWindow | null = null
 
@@ -374,20 +377,61 @@ async function launchAppOnDevice(serial: string, packageId: string): Promise<voi
 
 // ── VM launch IPC ────────────────────────────────────────────────────────────
 
-ipcMain.handle('vm:launch', async (_event, packageId: string) => {
+function stopVmProcess() {
+  if (vmProcess) {
+    vmProcess.removeAllListeners()
+    vmProcess.kill()
+    vmProcess = null
+  }
+  runningGameId = null
+  runningGameName = null
+  runningGameConfig = null
+}
+
+ipcMain.handle('vm:stop', () => {
+  stopVmProcess()
+  mainWindow?.webContents.send('vm:status', { status: 'stopped' })
+})
+
+ipcMain.handle('vm:launch', async (_event, options: {
+  packageId: string
+  gameName: string
+  config: { memoryMb: number; cores: number }
+  forceRestart?: boolean
+}) => {
   if (!mainWindow) return { success: false, error: 'No window' }
 
-  // ── 1. If VM already running, just launch the app ────────────────────────
+  const { packageId, gameName, config, forceRestart } = options
+
+  // ── 1. VM already running ────────────────────────────────────────────────
   if (vmProcess) {
-    const serial = await getEmulatorSerial()
-    if (serial) {
-      const prop = await runAdb(['-s', serial, 'shell', 'getprop', 'sys.boot_completed'])
-      if (prop.trim() === '1') {
-        await launchAppOnDevice(serial, packageId)
+    if (!forceRestart) {
+      // Same game — just launch the app into the running VM
+      if (runningGameId === packageId) {
+        const serial = await getEmulatorSerial()
+        if (serial) {
+          const prop = await runAdb(['-s', serial, 'shell', 'getprop', 'sys.boot_completed'])
+          if (prop.trim() === '1') {
+            await launchAppOnDevice(serial, packageId)
+            return { success: true, alreadyRunning: true }
+          }
+        }
         return { success: true, alreadyRunning: true }
       }
+
+      // Different game — ask UI to confirm restart
+      return {
+        success: false,
+        needsRestart: true,
+        runningGameName: runningGameName ?? 'another game',
+      }
     }
-    return { success: true, alreadyRunning: true }
+
+    // forceRestart: kill current VM first
+    stopVmProcess()
+    mainWindow.webContents.send('vm:status', { status: 'stopped' })
+    // Brief pause so the emulator process fully exits before relaunching
+    await new Promise<void>((r) => setTimeout(r, 1500))
   }
 
   // ── 2. Find AVM binary ────────────────────────────────────────────────────
@@ -411,17 +455,30 @@ ipcMain.handle('vm:launch', async (_event, packageId: string) => {
   // ── 4. Boot the VM ────────────────────────────────────────────────────────
   try {
     mainWindow.webContents.send('vm:status', { status: 'booting' })
-    vmProcess = spawn(avmBin, ['--image', imageDir], {
+    vmProcess = spawn(avmBin, [
+      '--image', imageDir,
+      '--memory', String(config.memoryMb),
+      '--cores', String(config.cores),
+    ], {
       detached: false,
       stdio: 'ignore',
       env: { ...process.env },
     })
+    runningGameId = packageId
+    runningGameName = gameName
+    runningGameConfig = config
     vmProcess.on('exit', () => {
       vmProcess = null
+      runningGameId = null
+      runningGameName = null
+      runningGameConfig = null
       mainWindow?.webContents.send('vm:status', { status: 'stopped' })
     })
     vmProcess.on('error', (err) => {
       vmProcess = null
+      runningGameId = null
+      runningGameName = null
+      runningGameConfig = null
       mainWindow?.webContents.send('vm:status', { status: 'error', error: err.message })
     })
   } catch (err: unknown) {
