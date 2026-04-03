@@ -7,7 +7,7 @@ export function WelcomeStep() {
     setOnboardingStep('downloading')
     // Kick off the install in the background
     if (window.nunu?.startInstall) {
-      window.nunu.startInstall({ androidVersion: '13' }).catch(() => {/* handled in DownloadStep */})
+      window.nunu.startInstall({ androidVersion: '34' }).catch(() => {/* handled in DownloadStep */})
     }
   }
 
@@ -43,7 +43,7 @@ export function WelcomeStep() {
 
       {/* Feature pills */}
       <div className="flex gap-3 flex-wrap justify-center">
-        {['Native Performance', 'Android 13', 'Google Play', 'SafetyNet Certified'].map(
+        {['Native Performance', 'Android 14', 'Google Play', 'SafetyNet Certified'].map(
           (feat) => (
             <span
               key={feat}

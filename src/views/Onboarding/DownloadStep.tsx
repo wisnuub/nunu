@@ -16,13 +16,9 @@ export function DownloadStep() {
     if (typeof window === 'undefined' || !window.nunu?.onInstallProgress) return
 
     const unsub = window.nunu.onInstallProgress((progress) => {
-      if (progress.phase === 'avm-core' || progress.phase === 'android-image') {
-        const combinedPhase = progress.phase === 'avm-core' ? 0 : 1
-        const base = combinedPhase * 50
-        const pct = base + Math.round(progress.percent * 0.5)
-        setDownloadProgress(pct, progress.status)
-
-        if (progress.phase === 'android-image' && progress.percent >= 100) {
+      if (progress.phase === 'android-image') {
+        setDownloadProgress(progress.percent, progress.status)
+        if (progress.percent >= 100) {
           setTimeout(() => setOnboardingStep('safetynet'), 800)
         }
       }
@@ -38,7 +34,7 @@ export function DownloadStep() {
       <div className="text-center mb-2">
         <h2 className="text-3xl font-bold text-white mb-2">Setting up Android</h2>
         <p className="text-white/50 text-base">
-          Downloading the Android runtime environment. This takes a few minutes.
+          Downloading the Android runtime. This may take a few minutes depending on your connection.
         </p>
       </div>
 
@@ -102,8 +98,8 @@ export function DownloadStep() {
           />
         </div>
         <div className="flex justify-between mt-2 text-xs text-white/30">
-          <span>AVM Core</span>
-          <span>Android Image</span>
+          <span>SDK tools</span>
+          <span>System image</span>
         </div>
       </div>
 

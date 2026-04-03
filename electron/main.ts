@@ -1,7 +1,9 @@
 import { app, BrowserWindow, ipcMain, shell, nativeImage } from 'electron'
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
-import { spawn, ChildProcess } from 'child_process'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, createWriteStream, renameSync } from 'fs'
+import { spawn, spawnSync, ChildProcess } from 'child_process'
+import { get as httpsGet } from 'https'
+import { get as httpGet } from 'http'
 import Store from 'electron-store'
 import { InstallationService } from './services/InstallationService'
 import { UpdateService } from './services/UpdateService'
@@ -121,12 +123,74 @@ ipcMain.handle('store:set', (_event, key: string, value: unknown) => {
 ipcMain.handle('install:start', async (_event, options: { androidVersion?: string }) => {
   if (!mainWindow) return { success: false, error: 'No window' }
 
-  const service = new InstallationService((progress) => {
-    mainWindow?.webContents.send('install:progress', progress)
-  })
+  const send = (percent: number, status: string) =>
+    mainWindow?.webContents.send('install:progress', { phase: 'android-image', percent, status })
+
+  const apiVersion = options.androidVersion ?? '34'
+  const arch = sysImageArch()
+  const sdkRoot = nunuSdkRoot()
+  const imageDir = join(sdkRoot, 'system-images', `android-${apiVersion}`, 'google_apis_playstore', arch)
+
+  // Already installed
+  if (existsSync(imageDir)) {
+    send(100, 'Android environment already installed')
+    return { success: true }
+  }
 
   try {
-    await service.downloadAndroidImage(options.androidVersion ?? '14')
+    // ── 1. Download cmdline-tools ─────────────────────────────────────────
+    const platformStr = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux'
+    const cmdlineToolsUrl = `https://dl.google.com/android/repository/commandlinetools-${platformStr}-11076708_latest.zip`
+    const zipPath = join(app.getPath('temp'), 'cmdline-tools.zip')
+
+    send(0, 'Downloading Android SDK tools…')
+    await downloadFile(cmdlineToolsUrl, zipPath, (pct) =>
+      send(Math.round(pct * 0.25), 'Downloading Android SDK tools…')
+    )
+
+    // ── 2. Extract cmdline-tools ──────────────────────────────────────────
+    send(25, 'Extracting SDK tools…')
+    const cmdlineToolsDir = join(sdkRoot, 'cmdline-tools')
+    if (!existsSync(cmdlineToolsDir)) mkdirSync(cmdlineToolsDir, { recursive: true })
+    await extractZip(zipPath, cmdlineToolsDir)
+
+    // sdkmanager unzips as cmdline-tools/cmdline-tools/ — rename inner dir to 'latest'
+    const innerDir = join(cmdlineToolsDir, 'cmdline-tools')
+    const latestDir = join(cmdlineToolsDir, 'latest')
+    if (existsSync(innerDir) && !existsSync(latestDir)) renameSync(innerDir, latestDir)
+
+    // ── 3. Accept licenses ────────────────────────────────────────────────
+    send(28, 'Accepting licenses…')
+    const sdkmanagerBin = join(latestDir, 'bin', process.platform === 'win32' ? 'sdkmanager.bat' : 'sdkmanager')
+    try {
+      await runSdkManager(sdkmanagerBin, sdkRoot, ['--licenses'], 'y\n'.repeat(20))
+    } catch { /* non-fatal — may already be accepted */ }
+
+    // ── 4. Install emulator + platform-tools + system image ───────────────
+    const packages = [
+      'emulator',
+      'platform-tools',
+      `system-images;android-${apiVersion};google_apis_playstore;${arch}`,
+    ]
+    send(30, 'Installing Android emulator…')
+    let lastPct = 30
+    await runSdkManager(sdkmanagerBin, sdkRoot, ['--install', ...packages], 'y\n'.repeat(10), (line) => {
+      const m = line.match(/\[\s*(\d+)%\]/)
+      if (m) {
+        const pct = parseInt(m[1])
+        const mapped = 30 + Math.round(pct * 0.7)
+        if (mapped > lastPct) {
+          lastPct = mapped
+          send(mapped, pct < 30
+            ? 'Installing Android emulator…'
+            : pct < 70
+            ? `Downloading Android system image… ${pct}%`
+            : `Verifying packages… ${pct}%`)
+        }
+      }
+    })
+
+    send(100, 'Android environment ready')
     return { success: true }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
@@ -167,7 +231,7 @@ ipcMain.handle('install:game', async (_event, gameId: string) => {
       send(5, 'Starting Android…')
       mainWindow.webContents.send('vm:status', { status: 'booting' })
       vmProcess = spawn(avmBin, ['--image', imageDir, '--memory', '4096', '--cores', '4'], {
-        detached: false, stdio: 'ignore', env: { ...process.env },
+        detached: false, stdio: 'ignore', env: avmSpawnEnv(),
       })
       runningGameId = null
       runningGameName = null
@@ -344,7 +408,90 @@ ipcMain.handle('config:set', (_event, key: string, value: unknown) => {
   writeNunuConfig(config)
 })
 
+// ── Android SDK helpers ──────────────────────────────────────────────────────
+
+function nunuSdkRoot(): string {
+  return join(app.getPath('home'), '.nunu', 'sdk')
+}
+
+function sysImageArch(): string {
+  return (process.platform === 'darwin' && process.arch === 'arm64') ? 'arm64-v8a' : 'x86_64'
+}
+
+function downloadFile(url: string, dest: string, onProgress: (pct: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const getFunc = url.startsWith('https') ? httpsGet : httpGet
+    getFunc(url, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        const loc = res.headers.location
+        if (loc) return downloadFile(loc, dest, onProgress).then(resolve).catch(reject)
+      }
+      if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+      const total = parseInt(res.headers['content-length'] ?? '0', 10)
+      let received = 0
+      const file = createWriteStream(dest)
+      res.on('data', (chunk: Buffer) => {
+        received += chunk.length
+        if (total > 0) onProgress(Math.round((received / total) * 100))
+      })
+      res.pipe(file)
+      file.on('finish', () => { file.close(); resolve() })
+      file.on('error', reject)
+      res.on('error', reject)
+    }).on('error', reject)
+  })
+}
+
+function extractZip(zipPath: string, destDir: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const args = process.platform === 'win32'
+      ? ['powershell', ['-Command', `Expand-Archive -Path "${zipPath}" -DestinationPath "${destDir}" -Force`]]
+      : ['unzip', ['-o', zipPath, '-d', destDir]] as [string, string[]]
+    const proc = spawn(args[0] as string, args[1] as string[], { stdio: 'ignore' })
+    proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`Extract failed: code ${code}`)))
+    proc.on('error', reject)
+  })
+}
+
+function runSdkManager(
+  bin: string,
+  sdkRoot: string,
+  args: string[],
+  stdinData?: string,
+  onLine?: (line: string) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (process.platform !== 'win32') spawnSync('chmod', ['+x', bin])
+    const env = { ...process.env, ANDROID_SDK_ROOT: sdkRoot, ANDROID_HOME: sdkRoot, JAVA_OPTS: '-Dfile.encoding=UTF-8' }
+    const proc = spawn(bin, args, { env, stdio: ['pipe', 'pipe', 'pipe'] })
+    if (stdinData) { proc.stdin?.write(stdinData); proc.stdin?.end() }
+    let buf = ''
+    proc.stdout?.on('data', (d: Buffer) => {
+      buf += d.toString()
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const l of lines) onLine?.(l)
+    })
+    proc.stderr?.on('data', (d: Buffer) => {
+      buf += d.toString()
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const l of lines) onLine?.(l)
+    })
+    proc.on('close', (code) => (code === 0 || code === 1) ? resolve() : reject(new Error(`sdkmanager exited ${code}`)))
+    proc.on('error', reject)
+  })
+}
+
 // ── VM helpers ───────────────────────────────────────────────────────────────
+
+function avmSpawnEnv() {
+  const sdk = nunuSdkRoot()
+  return {
+    ...process.env,
+    ...(existsSync(sdk) ? { ANDROID_SDK_ROOT: sdk, ANDROID_HOME: sdk } : {}),
+  }
+}
 
 function findAvmBinary(): string | null {
   const ext = process.platform === 'win32' ? '.exe' : ''
@@ -372,18 +519,19 @@ function findAvmBinary(): string | null {
 
 function findAndroidImageDir(): string | null {
   const home = app.getPath('home')
-  const imageRelPath = 'system-images/android-34/google_apis_playstore/arm64-v8a'
+  const arch = sysImageArch()
+  const imageRelPath = `system-images/android-34/google_apis_playstore/${arch}`
   const candidates = [
+    // nunu-managed SDK (downloaded by installer)
+    join(nunuSdkRoot(), imageRelPath),
+    // Homebrew
     join('/opt/homebrew/share/android-commandlinetools', imageRelPath),
     join('/usr/local/share/android-commandlinetools', imageRelPath),
+    // Android Studio
     join(home, 'Library/Android/sdk', imageRelPath),
     join(home, 'Android/Sdk', imageRelPath),
-    ...(process.env.ANDROID_SDK_ROOT
-      ? [join(process.env.ANDROID_SDK_ROOT, imageRelPath)]
-      : []),
-    ...(process.env.ANDROID_HOME
-      ? [join(process.env.ANDROID_HOME, imageRelPath)]
-      : []),
+    ...(process.env.ANDROID_SDK_ROOT ? [join(process.env.ANDROID_SDK_ROOT, imageRelPath)] : []),
+    ...(process.env.ANDROID_HOME ? [join(process.env.ANDROID_HOME, imageRelPath)] : []),
   ]
   for (const p of candidates) {
     if (existsSync(p)) return p
@@ -465,7 +613,7 @@ ipcMain.handle('vm:boot', async (_event, config?: { memoryMb: number; cores: num
   try {
     mainWindow.webContents.send('vm:status', { status: 'booting' })
     vmProcess = spawn(avmBin, ['--image', imageDir, '--memory', String(mem), '--cores', String(cores)], {
-      detached: false, stdio: 'ignore', env: { ...process.env },
+      detached: false, stdio: 'ignore', env: avmSpawnEnv(),
     })
     runningGameConfig = { memoryMb: mem, cores }
     vmProcess.on('exit', () => {
@@ -572,7 +720,7 @@ ipcMain.handle('vm:launch', async (_event, options: {
     ], {
       detached: false,
       stdio: 'ignore',
-      env: { ...process.env },
+      env: avmSpawnEnv(),
     })
     runningGameId = packageId
     runningGameName = gameName

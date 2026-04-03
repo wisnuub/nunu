@@ -42,7 +42,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 }
 
 export function Settings() {
-  const { hasUpdate, pendingUpdate, isSignedIn, userEmail, signOut, signIn } = useAppStore()
+  const { hasUpdate, pendingUpdate, isSignedIn, userEmail, signOut, signIn, setOnboardingDone, setOnboardingStep } = useAppStore()
 
   const FPS_STEPS = [1, 15, 30, 45, 60]
 
@@ -219,6 +219,14 @@ export function Settings() {
             <p className="text-red-400 text-xs">{vmError}</p>
           </div>
         )}
+        <Row label="Missed something?" hint="Re-run the Getting Started setup wizard">
+          <button
+            onClick={() => { setOnboardingDone(false); setOnboardingStep('welcome') }}
+            className="px-3 py-1.5 rounded-[6px] text-xs font-medium text-white/60 border border-white/10 hover:bg-white/5 transition-colors focus:outline-none"
+          >
+            Redo Getting Started
+          </button>
+        </Row>
       </Section>
 
       {/* Performance */}
