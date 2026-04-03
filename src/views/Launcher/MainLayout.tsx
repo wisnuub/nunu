@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAppStore } from '../../store/appStore'
 import { Sidebar } from './Sidebar'
@@ -14,7 +15,17 @@ const PAGE_TITLES: Record<string, string> = {
 }
 
 export function MainLayout() {
-  const { activeView, hasUpdate } = useAppStore()
+  const { activeView, hasUpdate, setVmStatus } = useAppStore()
+
+  // Global VM status listener — persists across tab switches
+  useEffect(() => {
+    return window.nunu?.onVmStatus?.((evt) => {
+      if (evt.status === 'booting') setVmStatus('booting')
+      else if (evt.status === 'ready') setVmStatus('ready')
+      else if (evt.status === 'stopped') setVmStatus('stopped', null)
+      else if (evt.status === 'error') setVmStatus('error', null)
+    })
+  }, [setVmStatus])
 
   return (
     <div className="flex h-full w-full overflow-hidden">

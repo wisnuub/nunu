@@ -57,25 +57,52 @@ export function Settings() {
   const [appVersion, setAppVersion] = useState('')
   const [signingIn, setSigningIn] = useState(false)
   const [signInError, setSignInError] = useState('')
+  const [androidInstalled, setAndroidInstalled] = useState<boolean | null>(null)
   const [vmRunning, setVmRunning] = useState(false)
   const [vmBusy, setVmBusy] = useState(false)
   const [vmError, setVmError] = useState('')
-  const [uninstalling, setUninstalling] = useState(false)
-  const [uninstallDone, setUninstallDone] = useState(false)
+  const [installing, setInstalling] = useState(false)
+  const [installPct, setInstallPct] = useState(0)
+  const [installStatus, setInstallStatus] = useState('')
 
   useEffect(() => {
     window.nunu?.getVersion?.().then((v) => setAppVersion(v))
     window.nunu?.isVmRunning?.().then((r) => setVmRunning(r))
+    window.nunu?.checkAndroidInstalled?.().then((r) => setAndroidInstalled(r))
   }, [])
 
   useEffect(() => {
     return window.nunu?.onVmStatus?.((evt) => {
-      if (evt.status === 'booting') { setVmRunning(false); setVmBusy(true) }
+      if (evt.status === 'booting') { setVmBusy(true) }
       else if (evt.status === 'ready') { setVmRunning(true); setVmBusy(false) }
       else if (evt.status === 'stopped') { setVmRunning(false); setVmBusy(false) }
       else if (evt.status === 'error') { setVmRunning(false); setVmBusy(false); setVmError(evt.error ?? 'Error') }
     })
   }, [])
+
+  const handleInstallService = async () => {
+    setInstalling(true)
+    setInstallPct(0)
+    setInstallStatus('Starting…')
+    setVmError('')
+    const unsub = window.nunu?.onInstallProgress?.((evt) => {
+      if (evt.phase === 'android-image') {
+        setInstallPct(evt.percent)
+        setInstallStatus(evt.status)
+        if (evt.percent >= 100) {
+          unsub?.()
+          setInstalling(false)
+          setAndroidInstalled(true)
+        }
+      }
+    })
+    const result = await window.nunu?.startInstall?.({})
+    if (result && !result.success) {
+      setVmError(result.error ?? 'Install failed')
+      setInstalling(false)
+      unsub?.()
+    }
+  }
 
   const handleStartVm = async () => {
     setVmError('')
@@ -94,13 +121,11 @@ export function Settings() {
   }
 
   const handleUninstall = async () => {
-    if (!confirm('Remove Android emulator data? This deletes the AVD and shader cache.')) return
-    setUninstalling(true)
+    if (!confirm('Remove Android environment? This deletes the emulator and system image.')) return
+    await window.nunu?.stopVm?.()
     await window.nunu?.uninstallAndroid?.()
-    setUninstalling(false)
-    setUninstallDone(true)
     setVmRunning(false)
-    setTimeout(() => setUninstallDone(false), 3000)
+    setAndroidInstalled(false)
   }
 
   const handleCheckUpdate = async () => {
@@ -182,38 +207,59 @@ export function Settings() {
         <Row label="Launch on startup" hint="Start nunu when your computer boots">
           <Toggle value={launchOnStartup} onChange={setLaunchOnStartup} />
         </Row>
-        <Row
-          label="Android Emulator"
-          hint={vmBusy ? 'Starting…' : vmRunning ? 'Running' : 'Stopped'}
-        >
-          <div className="flex items-center gap-2">
-            {vmRunning ? (
-              <button
-                onClick={handleStopVm}
-                disabled={vmBusy}
-                className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white bg-red-600/70 hover:bg-red-600 transition-colors focus:outline-none disabled:opacity-50"
-              >
-                Stop
-              </button>
-            ) : (
-              <button
-                onClick={handleStartVm}
-                disabled={vmBusy}
-                className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white transition-colors focus:outline-none disabled:opacity-50"
-                style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
-              >
-                {vmBusy ? 'Starting…' : 'Start'}
-              </button>
-            )}
+        {androidInstalled === false && !installing && (
+          <Row label="Android Service" hint="Android runtime not installed">
             <button
-              onClick={handleUninstall}
-              disabled={vmBusy || uninstalling}
-              className="px-3 py-1.5 rounded-[6px] text-xs font-medium text-red-400 border border-red-500/20 hover:bg-red-500/10 transition-colors focus:outline-none disabled:opacity-50"
+              onClick={handleInstallService}
+              className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white focus:outline-none"
+              style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
             >
-              {uninstalling ? 'Removing…' : uninstallDone ? 'Removed' : 'Uninstall'}
+              Install Service
             </button>
+          </Row>
+        )}
+        {installing && (
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium text-white">Installing Android Service</p>
+              <span className="text-white/40 text-xs">{installPct}%</span>
+            </div>
+            <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-2">
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{ width: `${installPct}%`, background: 'linear-gradient(90deg, #5B6EF5, #8B5CF6)' }}
+              />
+            </div>
+            <p className="text-white/40 text-xs">{installStatus}</p>
           </div>
-        </Row>
+        )}
+        {androidInstalled === true && !installing && (
+          <>
+            <Row
+              label="Android Service"
+              hint={vmBusy ? 'Starting…' : vmRunning ? 'Running' : 'Stopped'}
+            >
+              <div className="flex items-center gap-2">
+                {vmRunning ? (
+                  <button onClick={handleStopVm} disabled={vmBusy}
+                    className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white bg-red-600/70 hover:bg-red-600 transition-colors focus:outline-none disabled:opacity-50">
+                    Stop
+                  </button>
+                ) : (
+                  <button onClick={handleStartVm} disabled={vmBusy}
+                    className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white transition-colors focus:outline-none disabled:opacity-50"
+                    style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}>
+                    {vmBusy ? 'Starting…' : 'Start'}
+                  </button>
+                )}
+                <button onClick={handleUninstall} disabled={vmBusy}
+                  className="px-3 py-1.5 rounded-[6px] text-xs font-medium text-red-400 border border-red-500/20 hover:bg-red-500/10 transition-colors focus:outline-none disabled:opacity-50">
+                  Uninstall
+                </button>
+              </div>
+            </Row>
+          </>
+        )}
         {vmError && (
           <div className="px-5 pb-3">
             <p className="text-red-400 text-xs">{vmError}</p>

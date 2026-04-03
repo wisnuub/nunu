@@ -71,26 +71,20 @@ function SystemAppTile({ packageId, name }: { packageId: string; name: string })
 }
 
 export function GameLibrary() {
-  const { installedGames, setInstallProgress, addInstalledGame } = useAppStore()
+  const { installedGames, setInstallProgress, addInstalledGame, vmStatus, launchingPackageId, setVmStatus } = useAppStore()
 
   const featured = GAMES[0]
   const isFeaturedInstalled = installedGames.includes(featured.id)
   const featuredProgress = useAppStore((s) => s.installProgress[featured.id] ?? 0)
   const isFeaturedInstalling = featuredProgress > 0 && featuredProgress < 100
 
+  const isFeaturedLaunching = launchingPackageId === featured.packageId &&
+    (vmStatus === 'booting' || vmStatus === 'ready')
+  const featuredLaunchStatus = isFeaturedLaunching && vmStatus === 'booting' ? 'Booting…' : ''
+
   const [featuredArt, setFeaturedArt] = useState<string | null>(null)
   const [featuredBanner, setFeaturedBanner] = useState<string | null>(null)
-  const [featuredLaunching, setFeaturedLaunching] = useState(false)
-  const [featuredLaunchStatus, setFeaturedLaunchStatus] = useState('')
   const [featuredLaunchError, setFeaturedLaunchError] = useState('')
-
-  useEffect(() => {
-    return window.nunu?.onVmStatus?.((evt) => {
-      if (evt.status === 'booting') setFeaturedLaunchStatus('Booting…')
-      else if (evt.status === 'ready') setFeaturedLaunchStatus('')
-      else if (evt.status === 'stopped') { setFeaturedLaunchStatus(''); setFeaturedLaunching(false) }
-    })
-  }, [])
 
   useEffect(() => {
     window.nunu?.fetchGameArt?.(featured.packageId).then((url) => { if (url) setFeaturedArt(url) })
@@ -100,12 +94,10 @@ export function GameLibrary() {
   const handleFeaturedAction = async () => {
     if (isFeaturedInstalled) {
       setFeaturedLaunchError('')
-      setFeaturedLaunching(true)
-      setFeaturedLaunchStatus('Starting…')
+      setVmStatus('booting', featured.packageId)
       const result = await window.nunu?.launchGame?.(featured.packageId, featured.name, featured.defaultConfig)
-      setFeaturedLaunching(false)
-      setFeaturedLaunchStatus('')
-      if (result && !result.success && !result.alreadyRunning) {
+      if (result && !result.success && !result.alreadyRunning && !result.needsRestart) {
+        setVmStatus('idle', null)
         setFeaturedLaunchError(result.error ?? 'Failed to launch')
         setTimeout(() => setFeaturedLaunchError(''), 6000)
       }
@@ -192,7 +184,7 @@ export function GameLibrary() {
 
             <button
               onClick={handleFeaturedAction}
-              disabled={isFeaturedInstalling || featuredLaunching}
+              disabled={isFeaturedInstalling || isFeaturedLaunching}
               className="px-8 py-3 rounded-[8px] text-white font-semibold text-sm transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none disabled:opacity-50 shrink-0"
               style={
                 isFeaturedInstalled
@@ -202,7 +194,7 @@ export function GameLibrary() {
             >
               {isFeaturedInstalling
                 ? `Installing… ${featuredProgress}%`
-                : featuredLaunching
+                : isFeaturedLaunching
                 ? (featuredLaunchStatus || 'Starting…')
                 : isFeaturedInstalled
                 ? '▶ Play Now'

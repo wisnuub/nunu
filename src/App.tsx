@@ -51,7 +51,10 @@ export default function App() {
             }
           />
           <Route path="/onboarding/*" element={<OnboardingFlow />} />
-          <Route path="/launcher/*" element={<MainLayout />} />
+          <Route
+            path="/launcher/*"
+            element={isOnboardingDone ? <MainLayout /> : <Navigate to="/onboarding" replace />}
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

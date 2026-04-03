@@ -18,6 +18,7 @@ declare global {
       stopVm: () => Promise<void>
       uninstallAndroid: () => Promise<{ success: boolean }>
       isVmRunning: () => Promise<boolean>
+      checkAndroidInstalled: () => Promise<boolean>
       launchGame: (
         packageId: string,
         gameName: string,

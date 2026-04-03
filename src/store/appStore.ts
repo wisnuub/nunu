@@ -42,6 +42,10 @@ export interface AppStore {
   // Active view in launcher
   activeView: 'home' | 'my-games' | 'discover' | 'settings'
 
+  // VM status (persists across tab switches)
+  vmStatus: 'idle' | 'booting' | 'ready' | 'stopped' | 'error'
+  launchingPackageId: string | null
+
   // Actions
   setOnboardingDone: (val: boolean) => void
   setOnboardingStep: (step: OnboardingStep) => void
@@ -55,6 +59,7 @@ export interface AppStore {
   removeInstalledGame: (id: string) => void
   setHasUpdate: (val: boolean, release?: AndroidRelease) => void
   setActiveView: (view: AppStore['activeView']) => void
+  setVmStatus: (status: AppStore['vmStatus'], packageId?: string | null) => void
   hydrateFromStore: () => Promise<void>
 }
 
@@ -100,6 +105,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   // Active view
   activeView: 'home',
+
+  // VM
+  vmStatus: 'idle',
+  launchingPackageId: null,
 
   // Actions
   setOnboardingDone: (val) => {
@@ -149,6 +158,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ hasUpdate: val, pendingUpdate: release ?? null }),
 
   setActiveView: (view) => set({ activeView: view }),
+
+  setVmStatus: (status, packageId) =>
+    set((s) => ({
+      vmStatus: status,
+      launchingPackageId: packageId !== undefined ? packageId : s.launchingPackageId,
+    })),
 
   hydrateFromStore: async () => {
     const [isOnboardingDone, installedGames, isSignedIn, userEmail] = await Promise.all([

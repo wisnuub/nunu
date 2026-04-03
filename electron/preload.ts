@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('nunu', {
   stopVm: () => ipcRenderer.invoke('vm:stop'),
   uninstallAndroid: () => ipcRenderer.invoke('vm:uninstall'),
   isVmRunning: () => ipcRenderer.invoke('vm:isRunning') as Promise<boolean>,
+  checkAndroidInstalled: () => ipcRenderer.invoke('vm:checkInstalled') as Promise<boolean>,
 
   // VM launch
   launchGame: (

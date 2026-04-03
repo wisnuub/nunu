@@ -4,9 +4,9 @@ import { useAppStore } from '../../store/appStore'
 type State = 'idle' | 'waiting' | 'success' | 'no-client' | 'error'
 
 export function SignInStep() {
-  const { setOnboardingStep, signIn } = useAppStore()
-  const [state, setState] = useState<State>('idle')
-  const [email, setEmail] = useState('')
+  const { setOnboardingStep, signIn, isSignedIn, userEmail } = useAppStore()
+  const [state, setState] = useState<State>(isSignedIn ? 'success' : 'idle')
+  const [email, setEmail] = useState(userEmail ?? '')
   const [errorMsg, setErrorMsg] = useState('')
 
   const handleSignIn = async () => {
@@ -56,12 +56,26 @@ export function SignInStep() {
 
       {/* State-dependent content */}
       {state === 'success' && (
-        <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-[#16A34A]/20 border border-[#16A34A]/30 w-full max-w-sm">
-          <svg className="text-[#16A34A] shrink-0" width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <circle cx="10" cy="10" r="9" stroke="currentColor" strokeWidth="1.5"/>
-            <path d="M6 10l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          <span className="text-[#16A34A] text-sm font-medium">Signed in as {email}</span>
+        <div className="flex flex-col items-center gap-4 w-full max-w-sm">
+          <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-[#16A34A]/20 border border-[#16A34A]/30 w-full">
+            <svg className="text-[#16A34A] shrink-0" width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <circle cx="10" cy="10" r="9" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M6 10l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <div>
+              <p className="text-[#16A34A] text-sm font-medium">Signed in as {email}</p>
+              {isSignedIn && <p className="text-[#16A34A]/60 text-xs mt-0.5">You're already connected</p>}
+            </div>
+          </div>
+          {isSignedIn && (
+            <button
+              onClick={() => setOnboardingStep('complete')}
+              className="w-full py-3 rounded-xl text-white font-medium text-sm focus:outline-none"
+              style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
+            >
+              Next
+            </button>
+          )}
         </div>
       )}
 

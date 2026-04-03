@@ -595,6 +595,13 @@ ipcMain.handle('vm:stop', () => {
 
 ipcMain.handle('vm:isRunning', () => vmProcess !== null)
 
+ipcMain.handle('vm:checkInstalled', () => {
+  const arch = sysImageArch()
+  const imageDir = join(nunuSdkRoot(), 'system-images', 'android-34', 'google_apis_playstore', arch)
+  const emulatorBin = join(nunuSdkRoot(), 'emulator', process.platform === 'win32' ? 'emulator.exe' : 'emulator')
+  return existsSync(imageDir) && existsSync(emulatorBin)
+})
+
 ipcMain.handle('vm:boot', async (_event, config?: { memoryMb: number; cores: number }) => {
   if (!mainWindow) return { success: false, error: 'No window' }
   if (vmProcess) return { success: true, alreadyRunning: true }
