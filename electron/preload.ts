@@ -51,6 +51,11 @@ contextBridge.exposeInMainWorld('nunu', {
     ipcRenderer.on('vm:status', handler)
     return () => ipcRenderer.removeListener('vm:status', handler)
   },
+  onAdbAddress: (callback: (event: { address: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { address: string }) => callback(data)
+    ipcRenderer.on('vm:adb-address', handler)
+    return () => ipcRenderer.removeListener('vm:adb-address', handler)
+  },
 
   // Play Store art
   fetchGameArt: (packageId: string) => ipcRenderer.invoke('game:fetchArt', packageId),

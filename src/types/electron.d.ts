@@ -26,6 +26,7 @@ declare global {
         forceRestart?: boolean,
       ) => Promise<{ success: boolean; alreadyRunning?: boolean; needsRestart?: boolean; runningGameName?: string; error?: string }>
       onVmStatus: (callback: (event: { status: string; error?: string }) => void) => () => void
+      onAdbAddress: (callback: (event: { address: string }) => void) => () => void
       fetchGameArt: (packageId: string) => Promise<string | null>
       fetchGameBanner: (packageId: string) => Promise<string | null>
 

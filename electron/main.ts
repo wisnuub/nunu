@@ -526,6 +526,84 @@ function checkJavaInstalled(): Promise<boolean> {
   })
 }
 
+// ── nunu-kernel launcher helpers (macOS only) ────────────────────────────────
+
+function findNunuVmBinary(): string | null {
+  const ext = ''  // no extension on macOS
+  const candidates: string[] = []
+
+  if (app.isPackaged) {
+    candidates.push(join(process.resourcesPath, 'nunu-vm', `nunu-vm${ext}`))
+  }
+
+  const repoRoot = join(__dirname, '..', '..')
+  candidates.push(join(repoRoot, 'nunu-kernel', 'launcher', '.build', 'release', `nunu-vm${ext}`))
+  candidates.push(join(repoRoot, '..', 'nunu-kernel', 'launcher', '.build', 'release', `nunu-vm${ext}`))
+  candidates.push(join(repoRoot, '..', 'nunu-kernel', 'launcher', '.build', 'debug', `nunu-vm${ext}`))
+
+  for (const p of candidates) {
+    if (existsSync(p)) return p
+  }
+  return null
+}
+
+// Spawn nunu-vm (macOS) and translate its JSON stdout events into vm:status IPC
+function spawnNunuVm(options: {
+  kernelPath: string
+  diskPaths: string[]
+  memoryMb: number
+  cores: number
+  adbPort?: number
+}): ChildProcess {
+  const bin = findNunuVmBinary()
+  if (!bin) throw new Error('nunu-vm binary not found. Build nunu-kernel/launcher first.')
+
+  const args = [
+    '--kernel', options.kernelPath,
+    '--memory', String(options.memoryMb),
+    '--cores',  String(options.cores),
+    '--adb-port', String(options.adbPort ?? 5555),
+    ...options.diskPaths.flatMap(p => ['--disk', p]),
+  ]
+
+  const proc = spawn(bin, args, { detached: false, stdio: ['ignore', 'pipe', 'pipe'] })
+
+  let buf = ''
+  proc.stdout?.on('data', (d: Buffer) => {
+    buf += d.toString()
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
+    for (const line of lines) {
+      try {
+        const event = JSON.parse(line) as { event: string; address?: string; message?: string }
+        switch (event.event) {
+          case 'started':
+            mainWindow?.webContents.send('vm:status', { status: 'booting' })
+            break
+          case 'adb-ready':
+            mainWindow?.webContents.send('vm:status', { status: 'ready' })
+            mainWindow?.webContents.send('vm:adb-address', { address: event.address })
+            break
+          case 'stopped':
+            mainWindow?.webContents.send('vm:status', { status: 'stopped' })
+            break
+          case 'error':
+            mainWindow?.webContents.send('vm:status', { status: 'error', error: event.message })
+            break
+        }
+      } catch { /* non-JSON line, ignore */ }
+    }
+  })
+
+  proc.stderr?.on('data', (d: Buffer) => {
+    // Forward stderr as diagnostic logs only (not user-facing errors)
+    const text = d.toString().trim()
+    if (text) console.error('[nunu-vm]', text)
+  })
+
+  return proc
+}
+
 // ── VM helpers ───────────────────────────────────────────────────────────────
 
 function avmSpawnEnv() {
