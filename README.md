@@ -55,14 +55,22 @@ npm run electron:build:win    # → release/nunu Setup x.x.x.exe
 ## Architecture
 
 ```
-nunu (this repo)                  AVM (engine backend)
-────────────────────────          ─────────────────────────────
-Electron + React launcher   ←──── C++ hypervisor + GPU + input
-UpdateService (TS)          ←──── GitHub releases / update-manifest.json
-PatchService (TS)           ←──── xdelta3 delta patches
-SafetyNetService (TS)       ←──── ADB device fingerprint + GMS setup
-InstallationService (TS)    ←──── ADB + QEMU lifecycle
+nunu (this repo)
+│
+├─ macOS Apple Silicon
+│       nunu-kernel — Cuttlefish + Virtualization.framework
+│       Native ARM64 Android, no translation layer, Metal GPU
+│
+└─ Windows x86_64
+        AVM — QEMU + WHPX
+        Android x86_64, hardware-accelerated
 ```
+
+| Repo | Role |
+|---|---|
+| [nunu](https://github.com/wisnuub/nunu) | Electron + React launcher — this repo |
+| [nunu-kernel](https://github.com/wisnuub/nunu-kernel) | macOS VM engine — Cuttlefish + Virtualization.framework |
+| [AVM](https://github.com/wisnuub/AVM) | Windows VM engine — QEMU + WHPX |
 
 **First launch** runs the full onboarding flow: download → device certification → Google Sign-In.  
 **Every launch after that** goes straight to your game library — no setup screens.
