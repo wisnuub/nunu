@@ -151,29 +151,25 @@ jobs:
             ## nunu ${{ github.ref_name }}
 
             ### Platform status
-            | Platform | Version | AVM bundled |
-            |---|---|---|
-            | macOS (Apple Silicon) | v0.0.5 | Yes — Metal GPU, shader cache |
-            | Windows | v0.0.1 | No — coming soon |
+            | Platform | Status |
+            |---|---|
+            | macOS (Apple Silicon) | Launcher + nunu-apple engine install |
+            | Windows | Launcher UI only — emulator coming soon |
 
             ### Download
             - **macOS (Apple Silicon)** — `.dmg`, drag nunu to Applications
-            - **Windows** — `.exe` installer (launcher UI only, emulator coming in a future update)
+            - **Windows** — `.exe` installer
 
-            ### What's new (macOS v0.0.5)
-            - AVM emulator engine bundled — no separate install
-            - **GPU fix**: forces Metal (host GPU) instead of software lavapipe — no more freezing
-            - **Shader cache**: shaders persist across sessions for faster subsequent boots
-            - Play Store feature graphics as game card backgrounds
-            - Google Sign In OAuth fix (port null crash)
-            - Working update checker pointing to this repo
+            ### What's new (macOS)
+            - **Settings → Engine**: install/update nunu-apple (NunuVM) engine from within the app
+            - macOS path now uses Cuttlefish via nunu-apple engine (NunuVM) instead of AVM
+            - Cursor fix: pointer stays visible when clicking inside the VM
+            - Engine version tracking and update detection
 
             ### First run (macOS)
-            Install the Android system image:
-            ```
-            sdkmanager "system-images;android-34;google_apis_playstore;arm64-v8a"
-            ```
-            Install ADB: `brew install android-platform-tools`
+            1. Open nunu → Settings → Engine → Install
+            2. nunu-apple engine downloads automatically
+            3. Install Cuttlefish images and configure `~/.nunu/config.json`
 
             ### Notes
             - macOS: right-click → Open on first launch if Gatekeeper blocks it

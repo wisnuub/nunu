@@ -90,7 +90,7 @@ function createWindow() {
     const iconPath = join(__dirname, '../assets/icon.icns')
     if (existsSync(iconPath)) {
       const icon = nativeImage.createFromPath(iconPath)
-      app.dock.setIcon(icon)
+      app.dock?.setIcon(icon)
     }
   }
 }
