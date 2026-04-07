@@ -5,8 +5,8 @@ export function WelcomeStep() {
 
   const handleGetStarted = () => {
     if (window.nunu?.platform === 'darwin') {
-      // macOS: engine installed from Settings — skip download + safetynet
-      setOnboardingStep('signin')
+      // macOS: install nunu-apple engine, then sign in
+      setOnboardingStep('engine')
     } else {
       setOnboardingStep('downloading')
       window.nunu?.startInstall?.({ androidVersion: '34' }).catch(() => {/* handled in DownloadStep */})

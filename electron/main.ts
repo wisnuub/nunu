@@ -862,9 +862,17 @@ ipcMain.handle('vm:boot', async (_event, config?: { memoryMb: number; cores: num
         cmdline: CUTTLEFISH_CMDLINE, memoryMb: mem, cores,
       })
       runningGameConfig = { memoryMb: mem, cores }
-      vmProcess.on('exit', () => {
+      let bootStderr = ''
+      vmProcess.stderr?.on('data', (d: Buffer) => { bootStderr += d.toString() })
+      vmProcess.on('exit', (code) => {
+        const hadError = code !== null && code !== 0
         vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null; vmAdbAddress = null
-        mainWindow?.webContents.send('vm:status', { status: 'stopped' })
+        if (hadError) {
+          const msg = bootStderr.trim() || `Engine exited with code ${code}`
+          mainWindow?.webContents.send('vm:status', { status: 'error', error: msg })
+        } else {
+          mainWindow?.webContents.send('vm:status', { status: 'stopped' })
+        }
       })
       vmProcess.on('error', (err) => {
         vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null; vmAdbAddress = null
@@ -992,9 +1000,17 @@ ipcMain.handle('vm:launch', async (_event, options: {
       runningGameId = packageId
       runningGameName = gameName
       runningGameConfig = config
-      vmProcess.on('exit', () => {
+      let launchStderr = ''
+      vmProcess.stderr?.on('data', (d: Buffer) => { launchStderr += d.toString() })
+      vmProcess.on('exit', (code) => {
+        const hadError = code !== null && code !== 0
         vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null; vmAdbAddress = null
-        mainWindow?.webContents.send('vm:status', { status: 'stopped' })
+        if (hadError) {
+          const msg = launchStderr.trim() || `Engine exited with code ${code}`
+          mainWindow?.webContents.send('vm:status', { status: 'error', error: msg })
+        } else {
+          mainWindow?.webContents.send('vm:status', { status: 'stopped' })
+        }
       })
       vmProcess.on('error', (err) => {
         vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null; vmAdbAddress = null

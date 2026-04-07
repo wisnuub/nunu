@@ -1,5 +1,6 @@
 import { useAppStore } from '../../store/appStore'
 import { WelcomeStep } from './WelcomeStep'
+import { EngineStep } from './EngineStep'
 import { DownloadStep } from './DownloadStep'
 import { SafetyNetStep } from './SafetyNetStep'
 import { SignInStep } from './SignInStep'
@@ -29,27 +30,34 @@ export function OnboardingFlow() {
         {/* Step content */}
         <div className="h-full">
           {onboardingStep === 'welcome' && <WelcomeStep />}
+          {onboardingStep === 'engine' && <EngineStep />}
           {onboardingStep === 'downloading' && <DownloadStep />}
           {onboardingStep === 'safetynet' && <SafetyNetStep />}
           {onboardingStep === 'signin' && <SignInStep />}
           {onboardingStep === 'complete' && <CompleteStep />}
         </div>
 
-        {/* Step dots */}
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-2">
-          {(['welcome', 'downloading', 'safetynet', 'signin', 'complete'] as const).map(
-            (step, i) => (
-              <div
-                key={step}
-                className={`rounded-full transition-all duration-300 ${
-                  onboardingStep === step
-                    ? 'w-6 h-2 bg-gradient-to-r from-[#5B6EF5] to-[#8B5CF6]'
-                    : 'w-2 h-2 bg-white/20'
-                }`}
-              />
-            )
-          )}
-        </div>
+        {/* Step dots — macOS: 4 steps, Windows: 5 steps */}
+        {(() => {
+          const isMac = window.nunu?.platform === 'darwin'
+          const steps = isMac
+            ? (['welcome', 'engine', 'signin', 'complete'] as const)
+            : (['welcome', 'downloading', 'safetynet', 'signin', 'complete'] as const)
+          return (
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-2">
+              {steps.map((step) => (
+                <div
+                  key={step}
+                  className={`rounded-full transition-all duration-300 ${
+                    onboardingStep === step
+                      ? 'w-6 h-2 bg-gradient-to-r from-[#5B6EF5] to-[#8B5CF6]'
+                      : 'w-2 h-2 bg-white/20'
+                  }`}
+                />
+              ))}
+            </div>
+          )
+        })()}
       </div>
     </div>
   )

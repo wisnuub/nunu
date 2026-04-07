@@ -12,7 +12,7 @@ export interface AndroidRelease {
   }>
 }
 
-type OnboardingStep = 'welcome' | 'downloading' | 'safetynet' | 'signin' | 'complete'
+type OnboardingStep = 'welcome' | 'engine' | 'downloading' | 'safetynet' | 'signin' | 'complete'
 
 export interface AppStore {
   // Onboarding

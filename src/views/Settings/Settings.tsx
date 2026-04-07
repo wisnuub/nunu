@@ -183,6 +183,24 @@ export function Settings() {
     setEngineCheckingUpdate(false)
   }
 
+  const handleEngineReinstall = async () => {
+    setEngineCheckingUpdate(true)
+    setEngineUpdateMsg('')
+    try {
+      const result = await window.nunu?.checkEngineUpdate?.()
+      if (!result || !result.downloadUrl || !result.latestVersion) {
+        setEngineUpdateMsg('Could not fetch engine release. Check your connection.')
+        setEngineCheckingUpdate(false)
+        return
+      }
+      setEngineCheckingUpdate(false)
+      await handleEngineInstall(result.downloadUrl, result.latestVersion)
+    } catch {
+      setEngineUpdateMsg('Could not fetch engine release.')
+      setEngineCheckingUpdate(false)
+    }
+  }
+
   const handleEngineInstall = async (url: string, version: string) => {
     setEngineInstalling(true)
     setEngineInstallPct(0)
@@ -320,6 +338,13 @@ export function Settings() {
                     Update to v{engineLatestVersion}
                   </button>
                 )}
+                <button
+                  onClick={handleEngineReinstall}
+                  disabled={engineCheckingUpdate || engineInstalling}
+                  className="px-4 py-1.5 rounded-[6px] text-xs font-medium text-white/60 border border-white/10 hover:bg-white/5 transition-colors focus:outline-none disabled:opacity-50"
+                >
+                  {engineCheckingUpdate ? 'Fetching…' : 'Reinstall'}
+                </button>
                 <button
                   onClick={handleEngineCheckUpdate}
                   disabled={engineCheckingUpdate}
