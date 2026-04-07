@@ -93,7 +93,8 @@ contextBridge.exposeInMainWorld('nunu', {
     return () => ipcRenderer.removeListener('safetynet:progress', handler)
   },
 
-  // GApps (minimal Play Store install via ADB)
+  // GApps (Magisk-based: patch initramfs then provision via ADB)
+  patchInitrdForGApps: () => ipcRenderer.invoke('gapps:patch-initrd'),
   installGApps: () => ipcRenderer.invoke('gapps:install'),
   onGAppsProgress: (callback: (event: { percent: number; status: string }) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: { percent: number; status: string }) =>

@@ -11,6 +11,7 @@ import { SafetyNetService } from './services/SafetyNetService'
 import { startGoogleSignIn } from './services/GoogleAuthService'
 import { NunuAppleEngineService } from './services/NunuAppleEngineService'
 import { GAppsService } from './services/GAppsService'
+import { MagiskService } from './services/MagiskService'
 
 // Handle Windows NSIS squirrel events
 if (process.platform === 'win32') {
@@ -624,12 +625,17 @@ function findCuttlefishImages(): CuttlefishImages | null {
     join(home, '.nunu', 'cuttlefish'),
   ].filter(Boolean) as string[]
 
+  const magiskSvc = new MagiskService()
   for (const dir of candidates) {
     const kernel = join(dir, 'vmlinuz_full')
     if (!existsSync(kernel)) continue
+    const originalInitrd = join(dir, 'initramfs_fixed.img')
+    const initrd = magiskSvc.isPatchedInitrdPresent(originalInitrd)
+      ? magiskSvc.patchedInitrdFor(originalInitrd)
+      : originalInitrd
     return {
       kernel,
-      initrd: join(dir, 'initramfs_fixed.img'),
+      initrd,
       disks: [
         'misc.img', 'metadata.img', 'super.img',
         'vbmeta_a_disk.img', 'vbmeta_system_a_disk.img',
@@ -958,15 +964,40 @@ ipcMain.handle('vm:openGoogleSetup', async () => {
   }
 })
 
-// ── GApps install IPC ────────────────────────────────────────────────────────
+// ── GApps / Magisk IPC ───────────────────────────────────────────────────────
 
+// Phase 1: patch initramfs on the host (VM must be stopped)
+ipcMain.handle('gapps:patch-initrd', async () => {
+  if (!mainWindow) return { success: false, error: 'No window' }
+  if (vmProcess) return { success: false, error: 'Stop Android before patching the initramfs.' }
+
+  const images = findCuttlefishImages()
+  if (!images) return { success: false, error: 'Cuttlefish images not found.' }
+
+  // Always patch from the original, not a previously-patched file
+  const originalInitrd = images.initrd.endsWith('_magisk.img')
+    ? images.initrd.replace('_magisk.img', '.img')
+    : images.initrd
+
+  const svc = new MagiskService()
+  try {
+    const result = await svc.patchInitrd(originalInitrd, (pct, status) => {
+      mainWindow?.webContents.send('gapps:progress', { percent: pct, status })
+    })
+    return result
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+// Phase 2: post-boot provisioning (VM must be running + adb-ready)
 ipcMain.handle('gapps:install', async () => {
   if (!mainWindow) return { success: false, error: 'No window' }
   if (!vmAdbAddress) return { success: false, error: 'VM is not running. Start Android first.' }
 
-  const svc = new GAppsService(vmAdbAddress)
+  const svc = new MagiskService()
   try {
-    const result = await svc.install((pct, status) => {
+    const result = await svc.provisionGApps(vmAdbAddress, (pct, status) => {
       mainWindow?.webContents.send('gapps:progress', { percent: pct, status })
     })
     return result

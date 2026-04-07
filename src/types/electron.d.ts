@@ -70,6 +70,7 @@ declare global {
         }) => void
       ) => () => void
 
+      patchInitrdForGApps: () => Promise<{ success: boolean; patchedPath?: string; error?: string }>
       installGApps: () => Promise<{ success: boolean; error?: string }>
       onGAppsProgress: (callback: (event: { percent: number; status: string }) => void) => () => void
 
