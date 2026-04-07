@@ -65,6 +65,18 @@ contextBridge.exposeInMainWorld('nunu', {
   getVersion: () => ipcRenderer.invoke('app:version'),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
 
+  // Engine management (macOS: nunu-apple)
+  checkEngine: () => ipcRenderer.invoke('engine:check'),
+  checkEngineUpdate: () => ipcRenderer.invoke('engine:check-update'),
+  installEngine: (downloadUrl: string, version: string) =>
+    ipcRenderer.invoke('engine:install', downloadUrl, version),
+  onEngineProgress: (callback: (event: { percent: number; status: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { percent: number; status: string }) =>
+      callback(data)
+    ipcRenderer.on('engine:progress', handler)
+    return () => ipcRenderer.removeListener('engine:progress', handler)
+  },
+
   // Updates
   checkUpdate: () => ipcRenderer.invoke('update:check'),
 

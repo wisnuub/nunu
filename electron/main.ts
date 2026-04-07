@@ -9,6 +9,7 @@ import { InstallationService } from './services/InstallationService'
 import { UpdateService } from './services/UpdateService'
 import { SafetyNetService } from './services/SafetyNetService'
 import { startGoogleSignIn } from './services/GoogleAuthService'
+import { NunuAppleEngineService } from './services/NunuAppleEngineService'
 
 // Handle Windows NSIS squirrel events
 if (process.platform === 'win32') {
@@ -275,6 +276,34 @@ ipcMain.handle('install:game', async (_event, gameId: string) => {
   return { success: true }
 })
 
+// ── Engine IPC (macOS: nunu-apple) ────────────────────────────────────────────
+
+ipcMain.handle('engine:check', () => {
+  if (process.platform !== 'darwin') return { installed: false, version: null, binaryPath: '' }
+  const svc = new NunuAppleEngineService()
+  return svc.check()
+})
+
+ipcMain.handle('engine:check-update', async () => {
+  if (process.platform !== 'darwin') return { hasUpdate: false, installedVersion: null, latestVersion: null, downloadUrl: null }
+  const svc = new NunuAppleEngineService()
+  return svc.checkForUpdate()
+})
+
+ipcMain.handle('engine:install', async (_event, downloadUrl: string, version: string) => {
+  if (!mainWindow || process.platform !== 'darwin') return { success: false, error: 'Not supported' }
+  const svc = new NunuAppleEngineService()
+  try {
+    await svc.install(downloadUrl, version, (pct, status) => {
+      mainWindow?.webContents.send('engine:progress', { percent: pct, status })
+    })
+    return { success: true }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { success: false, error: message }
+  }
+})
+
 // ── Update IPC ───────────────────────────────────────────────────────────────
 
 ipcMain.handle('update:check', async () => {
@@ -529,17 +558,20 @@ function checkJavaInstalled(): Promise<boolean> {
 // ── nunu-apple engine helpers (macOS only) ───────────────────────────────────
 
 function findNunuVmBinary(): string | null {
-  const ext = ''  // no extension on macOS
   const candidates: string[] = []
 
   if (app.isPackaged) {
-    candidates.push(join(process.resourcesPath, 'nunu-vm', `nunu-vm${ext}`))
+    candidates.push(join(process.resourcesPath, 'nunu-vm', 'NunuVM'))
   }
 
+  // User-installed engine via Settings → Engine
+  candidates.push(join(app.getPath('home'), '.nunu', 'engines', 'nunu-apple', 'NunuVM'))
+
+  // Dev: sibling repo
   const repoRoot = join(__dirname, '..', '..')
-  candidates.push(join(repoRoot, 'nunu-apple', 'launcher', '.build', 'release', `nunu-vm${ext}`))
-  candidates.push(join(repoRoot, '..', 'nunu-apple', 'launcher', '.build', 'release', `nunu-vm${ext}`))
-  candidates.push(join(repoRoot, '..', 'nunu-apple', 'launcher', '.build', 'debug', `nunu-vm${ext}`))
+  candidates.push(join(repoRoot, 'nunu-apple', 'launcher', '.build', 'release', 'NunuVM'))
+  candidates.push(join(repoRoot, '..', 'nunu-apple', 'launcher', '.build', 'release', 'NunuVM'))
+  candidates.push(join(repoRoot, '..', 'nunu-apple', 'launcher', '.build', 'debug', 'NunuVM'))
 
   for (const p of candidates) {
     if (existsSync(p)) return p

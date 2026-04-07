@@ -65,10 +65,26 @@ export function Settings() {
   const [installPct, setInstallPct] = useState(0)
   const [installStatus, setInstallStatus] = useState('')
 
+  // Engine (nunu-apple) state
+  const [engineInstalled, setEngineInstalled] = useState<boolean | null>(null)
+  const [engineVersion, setEngineVersion] = useState<string | null>(null)
+  const [engineInstalling, setEngineInstalling] = useState(false)
+  const [engineInstallPct, setEngineInstallPct] = useState(0)
+  const [engineInstallStatus, setEngineInstallStatus] = useState('')
+  const [engineUpdateAvailable, setEngineUpdateAvailable] = useState(false)
+  const [engineLatestVersion, setEngineLatestVersion] = useState<string | null>(null)
+  const [engineDownloadUrl, setEngineDownloadUrl] = useState<string | null>(null)
+  const [engineUpdateMsg, setEngineUpdateMsg] = useState('')
+  const [engineCheckingUpdate, setEngineCheckingUpdate] = useState(false)
+
   useEffect(() => {
     window.nunu?.getVersion?.().then((v) => setAppVersion(v))
     window.nunu?.isVmRunning?.().then((r) => setVmRunning(r))
     window.nunu?.checkAndroidInstalled?.().then((r) => setAndroidInstalled(r))
+    window.nunu?.checkEngine?.().then((r) => {
+      setEngineInstalled(r.installed)
+      setEngineVersion(r.version)
+    })
   }, [])
 
   useEffect(() => {
@@ -126,6 +142,54 @@ export function Settings() {
     await window.nunu?.uninstallAndroid?.()
     setVmRunning(false)
     setAndroidInstalled(false)
+  }
+
+  const handleEngineCheckUpdate = async () => {
+    setEngineCheckingUpdate(true)
+    setEngineUpdateMsg('')
+    try {
+      const result = await window.nunu?.checkEngineUpdate?.()
+      if (!result) { setEngineUpdateMsg('Not supported on this platform.'); return }
+      setEngineLatestVersion(result.latestVersion)
+      setEngineDownloadUrl(result.downloadUrl)
+      if (result.error) {
+        setEngineUpdateMsg('Could not check for updates.')
+      } else if (result.hasUpdate) {
+        setEngineUpdateAvailable(true)
+        setEngineUpdateMsg(`Update available: v${result.installedVersion} → v${result.latestVersion}`)
+      } else if (result.latestVersion) {
+        setEngineUpdateMsg('Engine is up to date.')
+      } else {
+        setEngineUpdateMsg('No releases found.')
+      }
+    } catch {
+      setEngineUpdateMsg('Could not check for updates.')
+    }
+    setEngineCheckingUpdate(false)
+  }
+
+  const handleEngineInstall = async (url: string, version: string) => {
+    setEngineInstalling(true)
+    setEngineInstallPct(0)
+    setEngineInstallStatus('Starting…')
+    const unsub = window.nunu?.onEngineProgress?.((evt) => {
+      setEngineInstallPct(evt.percent)
+      setEngineInstallStatus(evt.status)
+      if (evt.percent >= 100) {
+        unsub?.()
+        setEngineInstalling(false)
+        setEngineInstalled(true)
+        setEngineVersion(version)
+        setEngineUpdateAvailable(false)
+        setEngineUpdateMsg('')
+      }
+    })
+    const result = await window.nunu?.installEngine?.(url, version)
+    if (result && !result.success) {
+      setEngineInstallStatus(result.error ?? 'Install failed')
+      setEngineInstalling(false)
+      unsub?.()
+    }
   }
 
   const handleCheckUpdate = async () => {
@@ -202,69 +266,141 @@ export function Settings() {
         )}
       </Section>
 
+      {/* Engine */}
+      {window.nunu?.platform === 'darwin' && (
+        <Section title="Engine">
+          {engineInstalled === false && !engineInstalling && (
+            <Row label="nunu-apple" hint="Engine not installed">
+              {engineDownloadUrl && engineLatestVersion ? (
+                <button
+                  onClick={() => handleEngineInstall(engineDownloadUrl, engineLatestVersion)}
+                  className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white focus:outline-none"
+                  style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
+                >
+                  Install v{engineLatestVersion}
+                </button>
+              ) : (
+                <button
+                  onClick={handleEngineCheckUpdate}
+                  disabled={engineCheckingUpdate}
+                  className="px-4 py-1.5 rounded-[6px] text-sm font-medium text-white/70 border border-white/10 hover:bg-white/5 transition-colors focus:outline-none disabled:opacity-50"
+                >
+                  {engineCheckingUpdate ? 'Checking…' : 'Check for engine'}
+                </button>
+              )}
+            </Row>
+          )}
+          {engineInstalled === true && !engineInstalling && (
+            <Row
+              label="nunu-apple"
+              hint={engineVersion ? `Installed: v${engineVersion}` : 'Installed'}
+            >
+              <div className="flex items-center gap-3">
+                {engineUpdateAvailable && engineDownloadUrl && engineLatestVersion && (
+                  <button
+                    onClick={() => handleEngineInstall(engineDownloadUrl, engineLatestVersion)}
+                    className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white focus:outline-none"
+                    style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
+                  >
+                    Update to v{engineLatestVersion}
+                  </button>
+                )}
+                <button
+                  onClick={handleEngineCheckUpdate}
+                  disabled={engineCheckingUpdate}
+                  className="px-4 py-1.5 rounded-[6px] text-sm font-medium text-white/70 border border-white/10 hover:bg-white/5 transition-colors focus:outline-none disabled:opacity-50"
+                >
+                  {engineCheckingUpdate ? 'Checking…' : 'Check for updates'}
+                </button>
+              </div>
+            </Row>
+          )}
+          {engineInstalling && (
+            <div className="px-5 py-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium text-white">Installing nunu-apple engine</p>
+                <span className="text-white/40 text-xs">{engineInstallPct}%</span>
+              </div>
+              <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-2">
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{ width: `${engineInstallPct}%`, background: 'linear-gradient(90deg, #5B6EF5, #8B5CF6)' }}
+                />
+              </div>
+              <p className="text-white/40 text-xs">{engineInstallStatus}</p>
+            </div>
+          )}
+          {engineUpdateMsg && (
+            <div className="px-5 pb-4">
+              <p className={`text-xs ${engineUpdateAvailable ? 'text-[#5B6EF5]' : 'text-white/40'}`}>{engineUpdateMsg}</p>
+            </div>
+          )}
+          {engineInstalled === true && !engineInstalling && (
+            <>
+              <Row
+                label="Android"
+                hint={vmBusy ? 'Starting…' : vmRunning ? 'Running' : 'Stopped'}
+              >
+                <div className="flex items-center gap-2">
+                  {vmRunning ? (
+                    <button onClick={handleStopVm} disabled={vmBusy}
+                      className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white bg-red-600/70 hover:bg-red-600 transition-colors focus:outline-none disabled:opacity-50">
+                      Stop
+                    </button>
+                  ) : (
+                    <button onClick={handleStartVm} disabled={vmBusy}
+                      className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white transition-colors focus:outline-none disabled:opacity-50"
+                      style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}>
+                      {vmBusy ? 'Starting…' : 'Start'}
+                    </button>
+                  )}
+                  <button onClick={handleUninstall} disabled={vmBusy}
+                    className="px-3 py-1.5 rounded-[6px] text-xs font-medium text-red-400 border border-red-500/20 hover:bg-red-500/10 transition-colors focus:outline-none disabled:opacity-50">
+                    Uninstall image
+                  </button>
+                </div>
+              </Row>
+              {vmError && (
+                <div className="px-5 pb-3">
+                  <p className="text-red-400 text-xs">{vmError}</p>
+                </div>
+              )}
+            </>
+          )}
+          {androidInstalled === false && !installing && engineInstalled === true && (
+            <Row label="Android image" hint="System image not installed">
+              <button
+                onClick={handleInstallService}
+                className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white focus:outline-none"
+                style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
+              >
+                Install
+              </button>
+            </Row>
+          )}
+          {installing && (
+            <div className="px-5 py-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium text-white">Installing Android image</p>
+                <span className="text-white/40 text-xs">{installPct}%</span>
+              </div>
+              <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-2">
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{ width: `${installPct}%`, background: 'linear-gradient(90deg, #5B6EF5, #8B5CF6)' }}
+                />
+              </div>
+              <p className="text-white/40 text-xs">{installStatus}</p>
+            </div>
+          )}
+        </Section>
+      )}
+
       {/* General */}
       <Section title="General">
         <Row label="Launch on startup" hint="Start nunu when your computer boots">
           <Toggle value={launchOnStartup} onChange={setLaunchOnStartup} />
         </Row>
-        {androidInstalled === false && !installing && (
-          <Row label="Android Service" hint="Android runtime not installed">
-            <button
-              onClick={handleInstallService}
-              className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white focus:outline-none"
-              style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
-            >
-              Install Service
-            </button>
-          </Row>
-        )}
-        {installing && (
-          <div className="px-5 py-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-medium text-white">Installing Android Service</p>
-              <span className="text-white/40 text-xs">{installPct}%</span>
-            </div>
-            <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-2">
-              <div
-                className="h-full rounded-full transition-all duration-300"
-                style={{ width: `${installPct}%`, background: 'linear-gradient(90deg, #5B6EF5, #8B5CF6)' }}
-              />
-            </div>
-            <p className="text-white/40 text-xs">{installStatus}</p>
-          </div>
-        )}
-        {androidInstalled === true && !installing && (
-          <>
-            <Row
-              label="Android Service"
-              hint={vmBusy ? 'Starting…' : vmRunning ? 'Running' : 'Stopped'}
-            >
-              <div className="flex items-center gap-2">
-                {vmRunning ? (
-                  <button onClick={handleStopVm} disabled={vmBusy}
-                    className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white bg-red-600/70 hover:bg-red-600 transition-colors focus:outline-none disabled:opacity-50">
-                    Stop
-                  </button>
-                ) : (
-                  <button onClick={handleStartVm} disabled={vmBusy}
-                    className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white transition-colors focus:outline-none disabled:opacity-50"
-                    style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}>
-                    {vmBusy ? 'Starting…' : 'Start'}
-                  </button>
-                )}
-                <button onClick={handleUninstall} disabled={vmBusy}
-                  className="px-3 py-1.5 rounded-[6px] text-xs font-medium text-red-400 border border-red-500/20 hover:bg-red-500/10 transition-colors focus:outline-none disabled:opacity-50">
-                  Uninstall
-                </button>
-              </div>
-            </Row>
-          </>
-        )}
-        {vmError && (
-          <div className="px-5 pb-3">
-            <p className="text-red-400 text-xs">{vmError}</p>
-          </div>
-        )}
         <Row label="Missed something?" hint="Re-run the Getting Started setup wizard">
           <button
             onClick={() => { setOnboardingDone(false); setOnboardingStep('welcome') }}
