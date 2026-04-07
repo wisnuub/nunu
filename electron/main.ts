@@ -45,6 +45,7 @@ let vmProcess: ChildProcess | null = null
 let runningGameId: string | null = null
 let runningGameName: string | null = null
 let runningGameConfig: { memoryMb: number; cores: number } | null = null
+let vmAdbAddress: string | null = null   // set when nunu-apple emits adb-ready
 
 let mainWindow: BrowserWindow | null = null
 
@@ -123,6 +124,9 @@ ipcMain.handle('store:set', (_event, key: string, value: unknown) => {
 
 ipcMain.handle('install:start', async (_event, options: { androidVersion?: string }) => {
   if (!mainWindow) return { success: false, error: 'No window' }
+  if (process.platform === 'darwin') {
+    return { success: false, error: 'Android images are managed separately on macOS.\nSee Settings → Engine.' }
+  }
 
   const send = (percent: number, status: string) =>
     mainWindow?.webContents.send('install:progress', { phase: 'android-image', percent, status })
@@ -579,23 +583,90 @@ function findNunuVmBinary(): string | null {
   return null
 }
 
-// Spawn nunu-vm (macOS) and translate its JSON stdout events into vm:status IPC
+// Cuttlefish kernel cmdline — validated against Apple VZ (run-apple-vm.sh)
+const CUTTLEFISH_CMDLINE = [
+  'console=hvc0', 'loglevel=8', 'printk.devkmsg=on', 'audit=1', 'panic=0',
+  'kvm-arm.mode=none', '8250.nr_uarts=1', 'binder.impl=rust', 'cma=0',
+  'firmware_class.path=/vendor/etc/', 'loop.max_part=7', 'init=/init',
+  'androidboot.hardware=cutf_cvm', 'androidboot.serialno=nunu0',
+  'androidboot.slot_suffix=_a', 'androidboot.fstab_suffix=cf.ext4.hctr2',
+  'androidboot.force_normal_boot=1', 'androidboot.dynamic_partitions=true',
+  'androidboot.super_partition=super', 'androidboot.boot_devices=40000000.pci',
+  'androidboot.selinux=permissive', 'androidboot.verifiedbootstate=orange',
+  'androidboot.vbmeta.invalidate_on_error=no',
+  'androidboot.hardware.hwcomposer=drm', 'androidboot.hardware.gralloc=minigbm',
+  'androidboot.hardware.egl=angle', 'androidboot.hardware.vulkan=pastel',
+  'androidboot.cpuvulkan.version=0', 'androidboot.opengles.version=196608',
+  'androidboot.vendor.apex.com.android.hardware.gatekeeper=com.android.hardware.gatekeeper.nonsecure',
+  'androidboot.vendor.apex.com.android.hardware.graphics.composer=com.android.hardware.graphics.composer.drm_hwcomposer',
+  'androidboot.vendor.apex.com.android.hardware.keymint=com.android.hardware.keymint.rust_nonsecure',
+  'androidboot.vendor.apex.com.android.hardware.secure_element=com.android.hardware.secure_element',
+  'androidboot.vendor.apex.com.android.hardware.strongbox=none',
+  'androidboot.vendor.apex.com.google.emulated.camera.provider.hal=com.google.emulated.camera.provider.hal',
+].join(' ')
+
+interface CuttlefishImages {
+  kernel: string
+  initrd: string
+  disks: string[]
+  snapshot: string
+}
+
+function findCuttlefishImages(): CuttlefishImages | null {
+  const config = readNunuConfig()
+  const home = app.getPath('home')
+  const candidates = [
+    config.cuttlefishImagesDir as string | undefined,
+    join(home, '.nunu', 'cuttlefish'),
+  ].filter(Boolean) as string[]
+
+  for (const dir of candidates) {
+    const kernel = join(dir, 'vmlinuz_full')
+    if (!existsSync(kernel)) continue
+    return {
+      kernel,
+      initrd: join(dir, 'initramfs_fixed.img'),
+      disks: [
+        'misc.img', 'metadata.img', 'super.img',
+        'vbmeta_a_disk.img', 'vbmeta_system_a_disk.img',
+        'vbmeta_system_dlkm_a_disk.img', 'vbmeta_vendor_dlkm_a_disk.img',
+        'userdata.img', 'boot_a_disk.img', 'init_boot_a_disk.img', 'frp.img',
+      ].map(f => join(dir, f)),
+      snapshot: join(dir, 'snapshot.vmsave'),
+    }
+  }
+  return null
+}
+
+// Spawn nunu-apple engine and translate its JSON stdout events into vm:status IPC
 function spawnNunuVm(options: {
   kernelPath: string
+  initrdPath: string
   diskPaths: string[]
+  snapshotPath?: string
+  cmdline: string
   memoryMb: number
   cores: number
   adbPort?: number
+  displayWidth?: number
+  displayHeight?: number
+  displayPPI?: number
 }): ChildProcess {
   const bin = findNunuVmBinary()
-  if (!bin) throw new Error('nunu-vm binary not found. Build nunu-apple/launcher first.')
+  if (!bin) throw new Error('nunu-apple engine not found. Install it in Settings → Engine.')
 
   const args = [
-    '--kernel', options.kernelPath,
-    '--memory', String(options.memoryMb),
-    '--cores',  String(options.cores),
-    '--adb-port', String(options.adbPort ?? 5555),
+    '--kernel',   options.kernelPath,
+    '--initrd',   options.initrdPath,
+    '--memory',   String(options.memoryMb),
+    '--cores',    String(options.cores),
+    '--adb-port', String(options.adbPort ?? 5554),
+    '--display-width',  String(options.displayWidth  ?? 1920),
+    '--display-height', String(options.displayHeight ?? 1080),
+    '--display-ppi',    String(options.displayPPI    ?? 240),
+    '--cmdline',  options.cmdline,
     ...options.diskPaths.flatMap(p => ['--disk', p]),
+    ...(options.snapshotPath ? ['--snapshot', options.snapshotPath] : []),
   ]
 
   const proc = spawn(bin, args, { detached: false, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -613,6 +684,7 @@ function spawnNunuVm(options: {
             mainWindow?.webContents.send('vm:status', { status: 'booting' })
             break
           case 'adb-ready':
+            vmAdbAddress = event.address ?? null
             mainWindow?.webContents.send('vm:status', { status: 'ready' })
             mainWindow?.webContents.send('vm:adb-address', { address: event.address })
             break
@@ -713,8 +785,17 @@ async function getEmulatorSerial(): Promise<string | null> {
   return match ? match[1] : null
 }
 
-async function waitForAndroidBoot(timeoutMs = 120_000): Promise<string | null> {
+async function waitForAndroidBoot(timeoutMs = 300_000): Promise<string | null> {
   const deadline = Date.now() + timeoutMs
+  if (process.platform === 'darwin') {
+    // macOS: wait for nunu-apple to emit adb-ready (sets vmAdbAddress)
+    while (Date.now() < deadline && vmProcess) {
+      if (vmAdbAddress) return vmAdbAddress
+      await new Promise<void>((r) => setTimeout(r, 1000))
+    }
+    return null
+  }
+  // Windows: poll adb for emulator serial + boot_completed
   while (Date.now() < deadline) {
     const serial = await getEmulatorSerial()
     if (serial) {
@@ -742,6 +823,7 @@ function stopVmProcess() {
   runningGameId = null
   runningGameName = null
   runningGameConfig = null
+  vmAdbAddress = null
 }
 
 ipcMain.handle('vm:stop', () => {
@@ -752,6 +834,7 @@ ipcMain.handle('vm:stop', () => {
 ipcMain.handle('vm:isRunning', () => vmProcess !== null)
 
 ipcMain.handle('vm:checkInstalled', () => {
+  if (process.platform === 'darwin') return findCuttlefishImages() !== null
   return findAndroidImageDir() !== null
 })
 
@@ -759,16 +842,43 @@ ipcMain.handle('vm:boot', async (_event, config?: { memoryMb: number; cores: num
   if (!mainWindow) return { success: false, error: 'No window' }
   if (vmProcess) return { success: true, alreadyRunning: true }
 
+  const mem  = config?.memoryMb ?? (process.platform === 'darwin' ? 8192 : 4096)
+  const cores = config?.cores  ?? (process.platform === 'darwin' ? 8    : 4)
+
+  if (process.platform === 'darwin') {
+    const images = findCuttlefishImages()
+    if (!images) return { success: false, error: 'Cuttlefish images not found.\nSet cuttlefishImagesDir in ~/.nunu/config.json or place images in ~/.nunu/cuttlefish/' }
+    const bin = findNunuVmBinary()
+    if (!bin) return { success: false, error: 'nunu-apple engine not installed.\nGo to Settings → Engine to install it.' }
+
+    try {
+      mainWindow.webContents.send('vm:status', { status: 'booting' })
+      vmProcess = spawnNunuVm({ ...images, cmdline: CUTTLEFISH_CMDLINE, memoryMb: mem, cores })
+      runningGameConfig = { memoryMb: mem, cores }
+      vmProcess.on('exit', () => {
+        vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null; vmAdbAddress = null
+        mainWindow?.webContents.send('vm:status', { status: 'stopped' })
+      })
+      vmProcess.on('error', (err) => {
+        vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null; vmAdbAddress = null
+        mainWindow?.webContents.send('vm:status', { status: 'error', error: err.message })
+      })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { success: false, error: message }
+    }
+    // status events (booting → ready) come from spawnNunuVm stdout — return immediately
+    return { success: true }
+  }
+
+  // Windows: AVM engine
   const avmBin = findAvmBinary()
-  if (!avmBin) return { success: false, error: 'AVM engine not found. Please reinstall nunu.' }
+  if (!avmBin) return { success: false, error: 'nunu-windows engine not found. Please reinstall nunu.' }
   const imageDir = findAndroidImageDir()
   if (!imageDir) return {
     success: false,
-    error: 'Android image not found.\nRun: sdkmanager "system-images;android-34;google_apis_playstore;arm64-v8a"',
+    error: 'Android image not found.\nRun: sdkmanager "system-images;android-34;google_apis_playstore;x86_64"',
   }
-
-  const mem = config?.memoryMb ?? 4096
-  const cores = config?.cores ?? 4
 
   try {
     mainWindow.webContents.send('vm:status', { status: 'booting' })
@@ -826,13 +936,9 @@ ipcMain.handle('vm:launch', async (_event, options: {
     if (!forceRestart) {
       // Same game — just launch the app into the running VM
       if (runningGameId === packageId) {
-        const serial = await getEmulatorSerial()
+        const serial = process.platform === 'darwin' ? vmAdbAddress : await getEmulatorSerial()
         if (serial) {
-          const prop = await runAdb(['-s', serial, 'shell', 'getprop', 'sys.boot_completed'])
-          if (prop.trim() === '1') {
-            await launchAppOnDevice(serial, packageId)
-            return { success: true, alreadyRunning: true }
-          }
+          await launchAppOnDevice(serial, packageId)
         }
         return { success: true, alreadyRunning: true }
       }
@@ -852,12 +958,47 @@ ipcMain.handle('vm:launch', async (_event, options: {
     await new Promise<void>((r) => setTimeout(r, 1500))
   }
 
-  // ── 2. Find AVM binary ────────────────────────────────────────────────────
+  if (process.platform === 'darwin') {
+    // ── 2. macOS: boot via nunu-apple (Cuttlefish) ──────────────────────────
+    const images = findCuttlefishImages()
+    if (!images) return { success: false, error: 'Cuttlefish images not found. Check Settings → Engine.' }
+    const bin = findNunuVmBinary()
+    if (!bin) return { success: false, error: 'nunu-apple engine not installed. Check Settings → Engine.' }
+
+    try {
+      mainWindow.webContents.send('vm:status', { status: 'booting' })
+      vmProcess = spawnNunuVm({ ...images, cmdline: CUTTLEFISH_CMDLINE, memoryMb: config.memoryMb, cores: config.cores })
+      runningGameId = packageId
+      runningGameName = gameName
+      runningGameConfig = config
+      vmProcess.on('exit', () => {
+        vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null; vmAdbAddress = null
+        mainWindow?.webContents.send('vm:status', { status: 'stopped' })
+      })
+      vmProcess.on('error', (err) => {
+        vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null; vmAdbAddress = null
+        mainWindow?.webContents.send('vm:status', { status: 'error', error: err.message })
+      })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { success: false, error: message }
+    }
+
+    // Wait for adb-ready (fires when NunuVM emits the event)
+    const adbAddr = await waitForAndroidBoot(300_000)
+    if (!adbAddr) return { success: false, error: 'Android took too long to boot.' }
+
+    mainWindow.webContents.send('vm:status', { status: 'ready' })
+    await launchAppOnDevice(adbAddr, packageId)
+    return { success: true }
+  }
+
+  // ── 2. Windows: AVM engine ────────────────────────────────────────────────
   const avmBin = findAvmBinary()
   if (!avmBin) {
     return {
       success: false,
-      error: 'AVM engine not found. Please reinstall nunu from github.com/wisnuub/nunu.',
+      error: 'nunu-windows engine not found. Please reinstall nunu.',
     }
   }
 
@@ -866,7 +1007,7 @@ ipcMain.handle('vm:launch', async (_event, options: {
   if (!imageDir) {
     return {
       success: false,
-      error: 'Android image not found.\nRun: sdkmanager "system-images;android-34;google_apis_playstore;arm64-v8a"',
+      error: 'Android image not found.\nRun: sdkmanager "system-images;android-34;google_apis_playstore;x86_64"',
     }
   }
 
@@ -886,17 +1027,11 @@ ipcMain.handle('vm:launch', async (_event, options: {
     runningGameName = gameName
     runningGameConfig = config
     vmProcess.on('exit', () => {
-      vmProcess = null
-      runningGameId = null
-      runningGameName = null
-      runningGameConfig = null
+      vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null
       mainWindow?.webContents.send('vm:status', { status: 'stopped' })
     })
     vmProcess.on('error', (err) => {
-      vmProcess = null
-      runningGameId = null
-      runningGameName = null
-      runningGameConfig = null
+      vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null
       mainWindow?.webContents.send('vm:status', { status: 'error', error: err.message })
     })
   } catch (err: unknown) {
