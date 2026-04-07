@@ -82,6 +82,7 @@ contextBridge.exposeInMainWorld('nunu', {
 
   // Google Sign-In
   signInWithGoogle: () => ipcRenderer.invoke('google:signin'),
+  openGoogleOnAndroid: () => ipcRenderer.invoke('vm:openGoogleSetup'),
 
   // SafetyNet
   setupSafetyNet: () => ipcRenderer.invoke('safetynet:setup'),

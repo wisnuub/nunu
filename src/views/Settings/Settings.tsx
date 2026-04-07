@@ -43,6 +43,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 
 export function Settings() {
   const { hasUpdate, pendingUpdate, isSignedIn, userEmail, signOut, signIn, setOnboardingDone, setOnboardingStep } = useAppStore()
+  const isMac = window.nunu?.platform === 'darwin'
 
   const FPS_STEPS = [1, 15, 30, 45, 60]
 
@@ -64,6 +65,8 @@ export function Settings() {
   const [installing, setInstalling] = useState(false)
   const [installPct, setInstallPct] = useState(0)
   const [installStatus, setInstallStatus] = useState('')
+  const [googleSetupMsg, setGoogleSetupMsg] = useState('')
+  const [googleSetupBusy, setGoogleSetupBusy] = useState(false)
 
   // Engine (nunu-apple) state
   const [engineInstalled, setEngineInstalled] = useState<boolean | null>(null)
@@ -142,6 +145,18 @@ export function Settings() {
     await window.nunu?.uninstallAndroid?.()
     setVmRunning(false)
     setAndroidInstalled(false)
+  }
+
+  const handleGoogleSetup = async () => {
+    setGoogleSetupBusy(true)
+    setGoogleSetupMsg('')
+    const result = await window.nunu?.openGoogleOnAndroid?.()
+    if (result?.success) {
+      setGoogleSetupMsg('Google account screen opened on Android.')
+    } else {
+      setGoogleSetupMsg(result?.error ?? 'Could not open Android account settings.')
+    }
+    setGoogleSetupBusy(false)
   }
 
   const handleEngineCheckUpdate = async () => {
@@ -354,10 +369,12 @@ export function Settings() {
                       {vmBusy ? 'Starting…' : 'Start'}
                     </button>
                   )}
-                  <button onClick={handleUninstall} disabled={vmBusy}
-                    className="px-3 py-1.5 rounded-[6px] text-xs font-medium text-red-400 border border-red-500/20 hover:bg-red-500/10 transition-colors focus:outline-none disabled:opacity-50">
-                    Uninstall image
-                  </button>
+                  {!isMac && (
+                    <button onClick={handleUninstall} disabled={vmBusy}
+                      className="px-3 py-1.5 rounded-[6px] text-xs font-medium text-red-400 border border-red-500/20 hover:bg-red-500/10 transition-colors focus:outline-none disabled:opacity-50">
+                      Uninstall image
+                    </button>
+                  )}
                 </div>
               </Row>
               {vmError && (
@@ -365,18 +382,50 @@ export function Settings() {
                   <p className="text-red-400 text-xs">{vmError}</p>
                 </div>
               )}
+              {isMac && vmRunning && isSignedIn && (
+                <Row label="Google Account" hint={userEmail ?? undefined}>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleGoogleSetup}
+                      disabled={googleSetupBusy}
+                      className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white transition-colors focus:outline-none disabled:opacity-50"
+                      style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
+                    >
+                      {googleSetupBusy ? 'Opening…' : 'Set up on Android'}
+                    </button>
+                  </div>
+                </Row>
+              )}
+              {googleSetupMsg && (
+                <div className="px-5 pb-3">
+                  <p className="text-white/40 text-xs">{googleSetupMsg}</p>
+                </div>
+              )}
             </>
           )}
           {androidInstalled === false && !installing && engineInstalled === true && (
-            <Row label="Android image" hint="System image not installed">
-              <button
-                onClick={handleInstallService}
-                className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white focus:outline-none"
-                style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
-              >
-                Install
-              </button>
-            </Row>
+            isMac ? (
+              <div className="px-5 py-4">
+                <p className="text-xs text-white/40">
+                  Place Cuttlefish images in{' '}
+                  <span className="font-mono text-white/60">~/.nunu/cuttlefish/</span>
+                  {' '}or set{' '}
+                  <span className="font-mono text-white/60">cuttlefishImagesDir</span>
+                  {' '}in{' '}
+                  <span className="font-mono text-white/60">~/.nunu/config.json</span>
+                </p>
+              </div>
+            ) : (
+              <Row label="Android image" hint="System image not installed">
+                <button
+                  onClick={handleInstallService}
+                  className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white focus:outline-none"
+                  style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
+                >
+                  Install
+                </button>
+              </Row>
+            )
           )}
           {installing && (
             <div className="px-5 py-4">

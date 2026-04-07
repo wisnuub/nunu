@@ -63,19 +63,30 @@ export function CompleteStep() {
 
       {/* Summary */}
       <div className="w-full max-w-sm flex flex-col gap-3">
-        <SummaryRow
-          icon="✅"
-          label="Android runtime"
-          value="Android 13"
-          ok
-        />
-        <SummaryRow
-          icon={safetyNetPassed ? '🛡️' : '⚠️'}
-          label="Device certification"
-          value={safetyNetPassed ? 'Certified (Pixel 7)' : 'Pending'}
-          ok={safetyNetPassed === true}
-          warn={safetyNetPassed === false}
-        />
+        {window.nunu?.platform === 'darwin' ? (
+          <SummaryRow
+            icon="✅"
+            label="nunu-apple engine"
+            value="Ready"
+            ok
+          />
+        ) : (
+          <>
+            <SummaryRow
+              icon="✅"
+              label="Android runtime"
+              value="Android 14"
+              ok
+            />
+            <SummaryRow
+              icon={safetyNetPassed ? '🛡️' : '⚠️'}
+              label="Device certification"
+              value={safetyNetPassed ? 'Certified (Pixel 7)' : 'Pending'}
+              ok={safetyNetPassed === true}
+              warn={safetyNetPassed === false}
+            />
+          </>
+        )}
         <SummaryRow
           icon={isSignedIn ? '👤' : '⊘'}
           label="Google Account"

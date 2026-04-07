@@ -928,6 +928,16 @@ ipcMain.handle('vm:uninstall', async () => {
   return { success: true }
 })
 
+ipcMain.handle('vm:openGoogleSetup', async () => {
+  if (!vmAdbAddress) return { success: false, error: 'VM is not running' }
+  try {
+    await runAdb(['-s', vmAdbAddress, 'shell', 'am', 'start', '-a', 'android.settings.ADD_ACCOUNT_SETTINGS'])
+    return { success: true }
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
 ipcMain.handle('vm:launch', async (_event, options: {
   packageId: string
   gameName: string

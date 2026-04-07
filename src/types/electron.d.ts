@@ -30,6 +30,8 @@ declare global {
       fetchGameArt: (packageId: string) => Promise<string | null>
       fetchGameBanner: (packageId: string) => Promise<string | null>
 
+      openGoogleOnAndroid: () => Promise<{ success: boolean; error?: string }>
+
       signInWithGoogle: () => Promise<{
         success: boolean
         email?: string
