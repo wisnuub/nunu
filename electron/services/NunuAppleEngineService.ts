@@ -1,8 +1,8 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, chmodSync, createWriteStream, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, rmSync, createWriteStream, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { get as httpsGet } from 'https'
-import { renameSync } from 'fs'
+import { spawnSync } from 'child_process'
 
 export interface EngineRelease {
   tag_name: string
@@ -30,13 +30,15 @@ export interface EngineUpdateResult {
 export class NunuAppleEngineService {
   private readonly engineDir: string
   readonly binaryPath: string
+  private readonly appBundlePath: string
   private readonly versionFile: string
   private readonly apiUrl = 'https://api.github.com/repos/wisnuub/nunu-apple/releases?per_page=1'
 
   constructor() {
     this.engineDir = join(app.getPath('home'), '.nunu', 'engines', 'nunu-apple')
-    // Binary lives inside an app bundle so entitlements + Info.plist are present
-    this.binaryPath = join(this.engineDir, 'NunuVM.app', 'Contents', 'MacOS', 'NunuVM')
+    this.appBundlePath = join(this.engineDir, 'NunuVM.app')
+    // Binary lives inside the app bundle so entitlements + Info.plist are present
+    this.binaryPath = join(this.appBundlePath, 'Contents', 'MacOS', 'NunuVM')
     this.versionFile = join(this.engineDir, 'version.txt')
   }
 
@@ -66,7 +68,7 @@ export class NunuAppleEngineService {
         ? this.isNewer(latestVersion, installedVersion)
         : false
 
-      const asset = release.assets.find((a) => a.name === 'NunuVM')
+      const asset = release.assets.find((a) => a.name === 'NunuVM.app.zip')
       const downloadUrl = asset?.browser_download_url ?? null
 
       return { hasUpdate, installedVersion, latestVersion, downloadUrl }
@@ -83,17 +85,30 @@ export class NunuAppleEngineService {
   ): Promise<void> {
     if (!existsSync(this.engineDir)) mkdirSync(this.engineDir, { recursive: true })
 
-    const tmpPath = this.binaryPath + '.tmp'
+    const tmpZip = join(this.engineDir, 'NunuVM.app.zip.tmp')
     onProgress(0, 'Downloading nunu-apple engine…')
 
-    await downloadFile(downloadUrl, tmpPath, (frac) => {
-      onProgress(Math.round(frac * 95), `Downloading… ${Math.round(frac * 100)}%`)
+    await downloadFile(downloadUrl, tmpZip, (frac) => {
+      onProgress(Math.round(frac * 90), `Downloading… ${Math.round(frac * 100)}%`)
     })
 
-    renameSync(tmpPath, this.binaryPath)
-    chmodSync(this.binaryPath, 0o755)
-    writeFileSync(this.versionFile, version)
+    onProgress(90, 'Extracting app bundle…')
 
+    // Remove old bundle if present
+    if (existsSync(this.appBundlePath)) {
+      rmSync(this.appBundlePath, { recursive: true, force: true })
+    }
+
+    // Extract NunuVM.app.zip into engineDir
+    const result = spawnSync('unzip', ['-o', tmpZip, '-d', this.engineDir], { encoding: 'utf-8' })
+    if (result.status !== 0) {
+      throw new Error(`Failed to extract engine: ${result.stderr ?? result.error?.message}`)
+    }
+
+    // Clean up zip
+    rmSync(tmpZip, { force: true })
+
+    writeFileSync(this.versionFile, version)
     onProgress(100, 'Engine installed')
   }
 

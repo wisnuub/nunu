@@ -4,10 +4,12 @@ export function WelcomeStep() {
   const { setOnboardingStep } = useAppStore()
 
   const handleGetStarted = () => {
-    setOnboardingStep('downloading')
-    // Kick off the install in the background
-    if (window.nunu?.startInstall) {
-      window.nunu.startInstall({ androidVersion: '34' }).catch(() => {/* handled in DownloadStep */})
+    if (window.nunu?.platform === 'darwin') {
+      // macOS uses nunu-apple engine — no SDK download needed in onboarding
+      setOnboardingStep('safetynet')
+    } else {
+      setOnboardingStep('downloading')
+      window.nunu?.startInstall?.({ androidVersion: '34' }).catch(() => {/* handled in DownloadStep */})
     }
   }
 
