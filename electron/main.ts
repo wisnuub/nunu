@@ -669,7 +669,7 @@ function spawnNunuVm(options: {
     '--display-ppi',    String(options.displayPPI    ?? 240),
     '--cmdline',  options.cmdline,
     ...options.diskPaths.flatMap(p => ['--disk', p]),
-    ...(options.snapshotPath ? ['--snapshot', options.snapshotPath] : []),
+    ...(options.snapshotPath && existsSync(options.snapshotPath) ? ['--snapshot', options.snapshotPath] : []),
   ]
 
   const proc = spawn(bin, args, { detached: false, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -694,9 +694,20 @@ function spawnNunuVm(options: {
           case 'stopped':
             mainWindow?.webContents.send('vm:status', { status: 'stopped' })
             break
-          case 'error':
-            mainWindow?.webContents.send('vm:status', { status: 'error', error: event.message })
+          case 'error': {
+            const msg = event.message ?? 'Unknown error'
+            // Corrupt/stale snapshot — delete it so next boot starts fresh
+            if (msg.toLowerCase().includes('restore') && options.snapshotPath) {
+              try { rmSync(options.snapshotPath) } catch {}
+              mainWindow?.webContents.send('vm:status', {
+                status: 'error',
+                error: 'Snapshot was corrupt and has been deleted. Press Start again to boot fresh.',
+              })
+            } else {
+              mainWindow?.webContents.send('vm:status', { status: 'error', error: msg })
+            }
             break
+          }
         }
       } catch { /* non-JSON line, ignore */ }
     }
