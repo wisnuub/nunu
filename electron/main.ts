@@ -563,19 +563,22 @@ function checkJavaInstalled(): Promise<boolean> {
 
 function findNunuVmBinary(): string | null {
   const candidates: string[] = []
+  const home = app.getPath('home')
 
   if (app.isPackaged) {
-    candidates.push(join(process.resourcesPath, 'nunu-vm', 'NunuVM'))
+    // Bundled app bundle inside the packaged Electron app
+    candidates.push(join(process.resourcesPath, 'nunu-apple', 'NunuVM.app', 'Contents', 'MacOS', 'NunuVM'))
   }
 
-  // User-installed engine via Settings → Engine
-  candidates.push(join(app.getPath('home'), '.nunu', 'engines', 'nunu-apple', 'NunuVM'))
+  // User-installed via Settings → Engine (app bundle)
+  candidates.push(join(home, '.nunu', 'engines', 'nunu-apple', 'NunuVM.app', 'Contents', 'MacOS', 'NunuVM'))
 
-  // Dev: sibling repo
+  // Dev: sibling repos — prefer app bundle (has Info.plist + entitlements needed by NSApplication)
   const repoRoot = join(__dirname, '..', '..')
-  candidates.push(join(repoRoot, 'nunu-apple', 'launcher', '.build', 'release', 'NunuVM'))
-  candidates.push(join(repoRoot, '..', 'nunu-apple', 'launcher', '.build', 'release', 'NunuVM'))
-  candidates.push(join(repoRoot, '..', 'nunu-apple', 'launcher', '.build', 'debug', 'NunuVM'))
+  for (const repoName of ['nunu-apple', 'nunu-kernel']) {
+    candidates.push(join(repoRoot, '..', repoName, 'launcher', 'NunuVM.app', 'Contents', 'MacOS', 'NunuVM'))
+    candidates.push(join(repoRoot, '..', repoName, 'launcher', '.build', 'release', 'NunuVM'))
+  }
 
   for (const p of candidates) {
     if (existsSync(p)) return p

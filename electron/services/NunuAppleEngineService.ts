@@ -35,7 +35,8 @@ export class NunuAppleEngineService {
 
   constructor() {
     this.engineDir = join(app.getPath('home'), '.nunu', 'engines', 'nunu-apple')
-    this.binaryPath = join(this.engineDir, 'NunuVM')
+    // Binary lives inside an app bundle so entitlements + Info.plist are present
+    this.binaryPath = join(this.engineDir, 'NunuVM.app', 'Contents', 'MacOS', 'NunuVM')
     this.versionFile = join(this.engineDir, 'version.txt')
   }
 
