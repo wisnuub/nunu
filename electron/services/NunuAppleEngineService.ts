@@ -4,6 +4,19 @@ import { join } from 'path'
 import { get as httpsGet } from 'https'
 import { spawnSync } from 'child_process'
 
+const NUNU_VM_ENTITLEMENTS = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.virtualization</key>
+  <true/>
+  <key>com.apple.security.network.server</key>
+  <true/>
+  <key>com.apple.security.network.client</key>
+  <true/>
+</dict>
+</plist>`
+
 export interface EngineRelease {
   tag_name: string
   assets: Array<{
@@ -107,6 +120,25 @@ export class NunuAppleEngineService {
 
     // Clean up zip
     rmSync(tmpZip, { force: true })
+
+    onProgress(95, 'Signing engine…')
+
+    // Remove quarantine — CI-built archives carry the attribute on extraction
+    spawnSync('xattr', ['-dr', 'com.apple.quarantine', this.appBundlePath])
+
+    // Re-sign with a local ad-hoc signature so Virtualization entitlement is
+    // valid on this machine. The CI binary is signed on a different machine so
+    // its ad-hoc signature is meaningless here.
+    const entPath = join(this.engineDir, 'NunuVM.entitlements')
+    writeFileSync(entPath, NUNU_VM_ENTITLEMENTS)
+    const sign = spawnSync(
+      'codesign',
+      ['--sign', '-', '--entitlements', entPath, '--force', '--deep', this.appBundlePath],
+      { encoding: 'utf-8' },
+    )
+    if (sign.status !== 0) {
+      throw new Error(`Failed to sign engine: ${sign.stderr ?? sign.error?.message}`)
+    }
 
     writeFileSync(this.versionFile, version)
     onProgress(100, 'Engine installed')
