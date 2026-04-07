@@ -93,6 +93,15 @@ contextBridge.exposeInMainWorld('nunu', {
     return () => ipcRenderer.removeListener('safetynet:progress', handler)
   },
 
+  // GApps (minimal Play Store install via ADB)
+  installGApps: () => ipcRenderer.invoke('gapps:install'),
+  onGAppsProgress: (callback: (event: { percent: number; status: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { percent: number; status: string }) =>
+      callback(data)
+    ipcRenderer.on('gapps:progress', handler)
+    return () => ipcRenderer.removeListener('gapps:progress', handler)
+  },
+
   // Config (~/.nunu/config.json)
   getConfig: (key: string) => ipcRenderer.invoke('config:get', key),
   setConfig: (key: string, value: unknown) => ipcRenderer.invoke('config:set', key, value),

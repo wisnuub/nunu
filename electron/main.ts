@@ -10,6 +10,7 @@ import { UpdateService } from './services/UpdateService'
 import { SafetyNetService } from './services/SafetyNetService'
 import { startGoogleSignIn } from './services/GoogleAuthService'
 import { NunuAppleEngineService } from './services/NunuAppleEngineService'
+import { GAppsService } from './services/GAppsService'
 
 // Handle Windows NSIS squirrel events
 if (process.platform === 'win32') {
@@ -952,6 +953,23 @@ ipcMain.handle('vm:openGoogleSetup', async () => {
   try {
     await runAdb(['-s', vmAdbAddress, 'shell', 'am', 'start', '-a', 'android.settings.ADD_ACCOUNT_SETTINGS'])
     return { success: true }
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+// ── GApps install IPC ────────────────────────────────────────────────────────
+
+ipcMain.handle('gapps:install', async () => {
+  if (!mainWindow) return { success: false, error: 'No window' }
+  if (!vmAdbAddress) return { success: false, error: 'VM is not running. Start Android first.' }
+
+  const svc = new GAppsService(vmAdbAddress)
+  try {
+    const result = await svc.install((pct, status) => {
+      mainWindow?.webContents.send('gapps:progress', { percent: pct, status })
+    })
+    return result
   } catch (err: unknown) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }

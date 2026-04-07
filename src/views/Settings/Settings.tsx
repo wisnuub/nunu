@@ -68,6 +68,12 @@ export function Settings() {
   const [googleSetupMsg, setGoogleSetupMsg] = useState('')
   const [googleSetupBusy, setGoogleSetupBusy] = useState(false)
 
+  // GApps install state
+  const [gappsInstalling, setGappsInstalling] = useState(false)
+  const [gappsPct, setGappsPct] = useState(0)
+  const [gappsStatus, setGappsStatus] = useState('')
+  const [gappsMsg, setGappsMsg] = useState('')
+
   // Engine (nunu-apple) state
   const [engineInstalled, setEngineInstalled] = useState<boolean | null>(null)
   const [engineVersion, setEngineVersion] = useState<string | null>(null)
@@ -157,6 +163,28 @@ export function Settings() {
       setGoogleSetupMsg(result?.error ?? 'Could not open Android account settings.')
     }
     setGoogleSetupBusy(false)
+  }
+
+  const handleInstallGApps = async () => {
+    setGappsInstalling(true)
+    setGappsPct(0)
+    setGappsStatus('Starting…')
+    setGappsMsg('')
+    const unsub = window.nunu?.onGAppsProgress?.((evt) => {
+      setGappsPct(evt.percent)
+      setGappsStatus(evt.status)
+      if (evt.percent >= 100) {
+        unsub?.()
+        setGappsInstalling(false)
+        setGappsMsg('Google Play installed. Android is rebooting — wait ~30s then press Start.')
+      }
+    })
+    const result = await window.nunu?.installGApps?.()
+    if (result && !result.success) {
+      setGappsMsg(result.error ?? 'Install failed')
+      setGappsInstalling(false)
+      unsub?.()
+    }
   }
 
   const handleEngineCheckUpdate = async () => {
@@ -424,6 +452,40 @@ export function Settings() {
               {googleSetupMsg && (
                 <div className="px-5 pb-3">
                   <p className="text-white/40 text-xs">{googleSetupMsg}</p>
+                </div>
+              )}
+              {/* Google Play install */}
+              {isMac && vmRunning && !gappsInstalling && (
+                <Row label="Google Play" hint="Install Play Store + Play Services via ADB">
+                  <button
+                    onClick={handleInstallGApps}
+                    className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white focus:outline-none"
+                    style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
+                  >
+                    Install
+                  </button>
+                </Row>
+              )}
+              {gappsInstalling && (
+                <div className="px-5 py-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium text-white">Installing Google Play…</p>
+                    <span className="text-white/40 text-xs">{gappsPct}%</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-2">
+                    <div
+                      className="h-full rounded-full transition-all duration-300"
+                      style={{ width: `${gappsPct}%`, background: 'linear-gradient(90deg, #5B6EF5, #8B5CF6)' }}
+                    />
+                  </div>
+                  <p className="text-white/40 text-xs">{gappsStatus}</p>
+                </div>
+              )}
+              {gappsMsg && (
+                <div className="px-5 pb-4">
+                  <p className={`text-xs ${gappsMsg.includes('installed') ? 'text-[#16A34A]' : 'text-red-400'}`}>
+                    {gappsMsg}
+                  </p>
                 </div>
               )}
             </>

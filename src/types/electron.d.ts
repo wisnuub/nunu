@@ -70,6 +70,9 @@ declare global {
         }) => void
       ) => () => void
 
+      installGApps: () => Promise<{ success: boolean; error?: string }>
+      onGAppsProgress: (callback: (event: { percent: number; status: string }) => void) => () => void
+
       getConfig: (key: string) => Promise<unknown>
       setConfig: (key: string, value: unknown) => Promise<void>
 
