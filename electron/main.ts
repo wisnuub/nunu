@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, nativeImage } from 'electron'
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, createWriteStream, renameSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, createWriteStream, renameSync, rmSync } from 'fs'
 import { spawn, spawnSync, ChildProcess } from 'child_process'
 import { get as httpsGet } from 'https'
 import { get as httpGet } from 'http'
