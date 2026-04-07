@@ -153,7 +153,7 @@ ipcMain.handle('install:start', async (_event, options: { androidVersion?: strin
 
   try {
     // ── 1. Download cmdline-tools ─────────────────────────────────────────
-    const platformStr = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux'
+    const platformStr = (process.platform as string) === 'win32' ? 'win' : (process.platform as string) === 'darwin' ? 'mac' : 'linux'
     const cmdlineToolsUrl = `https://dl.google.com/android/repository/commandlinetools-${platformStr}-11076708_latest.zip`
     const zipPath = join(app.getPath('temp'), 'cmdline-tools.zip')
 
@@ -856,7 +856,11 @@ ipcMain.handle('vm:boot', async (_event, config?: { memoryMb: number; cores: num
 
     try {
       mainWindow.webContents.send('vm:status', { status: 'booting' })
-      vmProcess = spawnNunuVm({ ...images, cmdline: CUTTLEFISH_CMDLINE, memoryMb: mem, cores })
+      vmProcess = spawnNunuVm({
+        kernelPath: images.kernel, initrdPath: images.initrd,
+        diskPaths: images.disks, snapshotPath: images.snapshot,
+        cmdline: CUTTLEFISH_CMDLINE, memoryMb: mem, cores,
+      })
       runningGameConfig = { memoryMb: mem, cores }
       vmProcess.on('exit', () => {
         vmProcess = null; runningGameId = null; runningGameName = null; runningGameConfig = null; vmAdbAddress = null
@@ -970,7 +974,11 @@ ipcMain.handle('vm:launch', async (_event, options: {
 
     try {
       mainWindow.webContents.send('vm:status', { status: 'booting' })
-      vmProcess = spawnNunuVm({ ...images, cmdline: CUTTLEFISH_CMDLINE, memoryMb: config.memoryMb, cores: config.cores })
+      vmProcess = spawnNunuVm({
+        kernelPath: images.kernel, initrdPath: images.initrd,
+        diskPaths: images.disks, snapshotPath: images.snapshot,
+        cmdline: CUTTLEFISH_CMDLINE, memoryMb: config.memoryMb, cores: config.cores,
+      })
       runningGameId = packageId
       runningGameName = gameName
       runningGameConfig = config

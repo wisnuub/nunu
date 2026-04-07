@@ -41,6 +41,11 @@ declare global {
       getVersion: () => Promise<string>
       openExternal: (url: string) => Promise<void>
 
+      checkEngine: () => Promise<{ installed: boolean; version: string | null; binaryPath: string }>
+      checkEngineUpdate: () => Promise<{ hasUpdate: boolean; installedVersion: string | null; latestVersion: string | null; downloadUrl: string | null; error?: string }>
+      installEngine: (downloadUrl: string, version: string) => Promise<{ success: boolean; error?: string }>
+      onEngineProgress: (callback: (event: { percent: number; status: string }) => void) => () => void
+
       checkUpdate: () => Promise<{
         hasUpdate: boolean
         release: unknown
