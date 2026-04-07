@@ -526,7 +526,7 @@ function checkJavaInstalled(): Promise<boolean> {
   })
 }
 
-// ── nunu-kernel launcher helpers (macOS only) ────────────────────────────────
+// ── nunu-apple engine helpers (macOS only) ───────────────────────────────────
 
 function findNunuVmBinary(): string | null {
   const ext = ''  // no extension on macOS
@@ -537,9 +537,9 @@ function findNunuVmBinary(): string | null {
   }
 
   const repoRoot = join(__dirname, '..', '..')
-  candidates.push(join(repoRoot, 'nunu-kernel', 'launcher', '.build', 'release', `nunu-vm${ext}`))
-  candidates.push(join(repoRoot, '..', 'nunu-kernel', 'launcher', '.build', 'release', `nunu-vm${ext}`))
-  candidates.push(join(repoRoot, '..', 'nunu-kernel', 'launcher', '.build', 'debug', `nunu-vm${ext}`))
+  candidates.push(join(repoRoot, 'nunu-apple', 'launcher', '.build', 'release', `nunu-vm${ext}`))
+  candidates.push(join(repoRoot, '..', 'nunu-apple', 'launcher', '.build', 'release', `nunu-vm${ext}`))
+  candidates.push(join(repoRoot, '..', 'nunu-apple', 'launcher', '.build', 'debug', `nunu-vm${ext}`))
 
   for (const p of candidates) {
     if (existsSync(p)) return p
@@ -556,7 +556,7 @@ function spawnNunuVm(options: {
   adbPort?: number
 }): ChildProcess {
   const bin = findNunuVmBinary()
-  if (!bin) throw new Error('nunu-vm binary not found. Build nunu-kernel/launcher first.')
+  if (!bin) throw new Error('nunu-vm binary not found. Build nunu-apple/launcher first.')
 
   const args = [
     '--kernel', options.kernelPath,
@@ -620,17 +620,20 @@ function findAvmBinary(): string | null {
 
   // 1. Bundled inside the packaged Electron app (production)
   if (app.isPackaged) {
-    candidates.push(join(process.resourcesPath, 'avm', `avm${ext}`))
+    candidates.push(join(process.resourcesPath, 'nunu-windows', `nunu-windows${ext}`))
+    candidates.push(join(process.resourcesPath, 'avm', `avm${ext}`))  // legacy
   }
 
-  // 2. Dev: native build inside the repo (npm run electron:dev)
+  // 2. Dev: nunu-windows build alongside the repo (npm run electron:dev)
   const repoRoot = join(__dirname, '..', '..')
+  candidates.push(join(repoRoot, '..', 'nunu-windows', 'build', `nunu-windows${ext}`))
   candidates.push(join(repoRoot, 'native', 'avm', 'build', `avm${ext}`))
 
   // 3. Legacy manual install locations
   const home = app.getPath('home')
+  candidates.push(join(home, '.nunu', 'nunu-windows', `nunu-windows${ext}`))
   candidates.push(join(home, '.nunu', 'avm-core', `avm${ext}`))
-  candidates.push(join(home, 'Documents', 'GitHub', 'AVM', 'build', `avm${ext}`))
+  candidates.push(join(home, 'Documents', 'GitHub', 'nunu-windows', 'build', `nunu-windows${ext}`))
 
   for (const p of candidates) {
     if (existsSync(p)) return p

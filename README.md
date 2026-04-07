@@ -58,26 +58,26 @@ npm run electron:build:win    # → release/nunu Setup x.x.x.exe
 nunu (this repo)
 │
 ├─ macOS Apple Silicon
-│       nunu-kernel — Cuttlefish + Virtualization.framework
+│       nunu-apple — Cuttlefish + Virtualization.framework
 │       Native ARM64 Android, no translation layer, Metal GPU
 │
 └─ Windows x86_64
-        AVM — QEMU + WHPX
+        nunu-windows — QEMU + WHPX
         Android x86_64, hardware-accelerated
 ```
 
 | Repo | Role |
 |---|---|
 | [nunu](https://github.com/wisnuub/nunu) | Electron + React launcher — this repo |
-| [nunu-kernel](https://github.com/wisnuub/nunu-kernel) | macOS VM engine — Cuttlefish + Virtualization.framework |
-| [AVM](https://github.com/wisnuub/AVM) | Windows VM engine — QEMU + WHPX |
+| [nunu-apple](https://github.com/wisnuub/nunu-apple) | macOS VM engine — Cuttlefish + Virtualization.framework |
+| [nunu-windows](https://github.com/wisnuub/nunu-windows) | Windows VM engine — QEMU + WHPX |
 
 **First launch** runs the full onboarding flow: download → device certification → Google Sign-In.  
 **Every launch after that** goes straight to your game library — no setup screens.
 
 ### Update / patch system
 
-AVM publishes an `update-manifest.json` asset in each GitHub release. nunu checks this on startup and in Settings → Android Engine. If you already have a base image installed, it downloads only a delta patch (xdelta3 format) — typically 30–100× smaller than a full image.
+nunu-windows publishes an `update-manifest.json` asset in each GitHub release. nunu checks this on startup and in Settings → Android Engine. If you already have a base image installed, it downloads only a delta patch (xdelta3 format) — typically 30–100× smaller than a full image.
 
 For patch support, install xdelta3:
 ```bash
@@ -100,6 +100,6 @@ All runtime data lives in `~/.nunu/`:
 
 | File | Purpose |
 |---|---|
-| `avm-core` | AVM engine marker |
+| `nunu-windows/` | Windows engine (nunu-windows) |
 | `android-<version>-arm64.img` | Android disk image |
 | `android-version.txt` | Installed version string |
