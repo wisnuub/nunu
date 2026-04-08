@@ -89,8 +89,19 @@ export class GAppsRootService {
     try {
       if (!existsSync(this.workDir)) mkdirSync(this.workDir, { recursive: true })
 
-      // ── 1. Verify adb root access ─────────────────────────────────────
-      onProgress(2, 'Checking root access…')
+      // ── 1. Verify this is a debuggable build ──────────────────────────
+      onProgress(2, 'Checking build type…')
+      const debuggable = adbSync(adbSerial, ['shell', 'getprop', 'ro.debuggable'], 8_000)
+      const buildType  = adbSync(adbSerial, ['shell', 'getprop', 'ro.build.type'], 8_000)
+      if (debuggable.stdout.trim() !== '1') {
+        return {
+          success: false,
+          error: `This Android build is '${buildType.stdout.trim()}' (ro.debuggable=${debuggable.stdout.trim()}). adb root only works on userdebug/eng builds. GApps cannot be installed.`,
+        }
+      }
+
+      // ── 2. Get root shell ─────────────────────────────────────────────
+      onProgress(4, 'Getting root access…')
       const rootR = adbSync(adbSerial, ['root'], 15_000)
       if (!rootR.ok && !rootR.stdout.includes('already running as root')) {
         return { success: false, error: `adb root failed: ${rootR.stderr || rootR.stdout}` }
@@ -108,8 +119,8 @@ export class GAppsRootService {
         return { success: false, error: `Not running as root after adb root. Response: ${whoami.stdout}` }
       }
 
-      // ── 2. Remount /system as read-write ──────────────────────────────
-      onProgress(8, 'Remounting /system…')
+      // ── 3. Remount /system as read-write ──────────────────────────────
+      onProgress(10, 'Remounting /system…')
       // disable-verity + remount is the reliable sequence for userdebug builds
       adbSync(adbSerial, ['disable-verity'], 15_000)
       await sleep(1_000)
