@@ -333,13 +333,27 @@ export class MagiskService {
 
       if (asset) {
         onProgress(4, `Downloading magiskboot (${asset.name})…`)
-        await downloadFile(asset.browser_download_url, this.magiskbootPath, (f) => {
+        const isZip = asset.name.endsWith('.zip')
+        const downloadDest = isZip
+          ? join(this.workDir, asset.name)
+          : this.magiskbootPath
+        await downloadFile(asset.browser_download_url, downloadDest, (f) => {
           onProgress(4 + Math.round(f * 14), `Downloading magiskboot… ${Math.round(f * 100)}%`)
         })
+        if (isZip) {
+          // Extract the binary from the zip — the binary inside is named 'magiskboot'
+          const r = spawnSync('unzip', ['-o', downloadDest, 'magiskboot', '-d', this.workDir], {
+            encoding: 'utf-8',
+          })
+          rmSync(downloadDest)
+          if (r.status !== 0) {
+            downloadErr = `unzip failed: ${r.stderr || r.stdout}`
+          }
+        }
         spawnSync('chmod', ['+x', this.magiskbootPath])
         if (this.magiskbootWorks()) return
-        downloadErr = `Downloaded ${asset.name} but it does not execute — wrong architecture?`
-        rmSync(this.magiskbootPath)
+        downloadErr = downloadErr || `Downloaded ${asset.name} but it does not execute — wrong architecture?`
+        if (existsSync(this.magiskbootPath)) rmSync(this.magiskbootPath)
       } else {
         downloadErr = `No suitable asset in release ${rel.tag_name}. Available: ${rel.assets.map(a => a.name).join(', ')}`
       }
