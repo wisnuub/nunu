@@ -93,10 +93,6 @@ If xdelta3 is not available, nunu falls back to a full image download automatica
 
 Settings → Engine → **Patch initramfs** injects Magisk into the Cuttlefish initramfs on the host before the VM starts. Once the VM is running, **Install GApps** pushes a minimal GApps package (Play Store + Google Account, no Chrome or Gmail) as a Magisk module and reboots. Everything is automatic — `magiskboot` and the Magisk APK are downloaded by nunu.
 
-### Google Sign-In setup (for developers)
-
-Replace the placeholder `clientID` in [electron/services/InstallationService.ts](electron/services/InstallationService.ts) and the webview URL in [src/views/Onboarding/SignInStep.tsx](src/views/Onboarding/SignInStep.tsx) with your OAuth 2.0 client ID from Google Cloud Console. Register `nunu://oauth` as an authorized redirect URI.
-
 ---
 
 ## Data location
