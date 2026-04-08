@@ -12,10 +12,10 @@
  */
 
 import { app } from 'electron'
-import { existsSync, mkdirSync, rmSync, renameSync, writeFileSync, readFileSync, copyFileSync } from 'fs'
+import { existsSync, mkdirSync, rmSync, renameSync, writeFileSync, readFileSync, copyFileSync, createWriteStream } from 'fs'
 import { join, dirname } from 'path'
 import { get as httpsGet } from 'https'
-import { spawnSync } from 'child_process'
+import { spawnSync, spawn } from 'child_process'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -30,6 +30,40 @@ export type MagiskProgressFn = (pct: number, status: string) => void
 
 function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms))
+}
+
+// Run a command with large stdin/stdout via async streams (avoids spawnSync ENOBUFS on big files)
+function spawnPiped(
+  cmd: string, args: string[], opts: { cwd: string; inputFile?: string; outputFile?: string }
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(cmd, args, {
+      cwd: opts.cwd,
+      stdio: [
+        opts.inputFile ? 'pipe' : 'ignore',
+        opts.outputFile ? 'pipe' : 'ignore',
+        'pipe',
+      ],
+    })
+    let stderr = ''
+    proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+
+    if (opts.inputFile) {
+      const { createReadStream } = require('fs') as typeof import('fs')
+      createReadStream(opts.inputFile).pipe(proc.stdin!)
+    }
+
+    if (opts.outputFile) {
+      const out = createWriteStream(opts.outputFile)
+      proc.stdout!.pipe(out)
+    }
+
+    proc.on('error', reject)
+    proc.on('close', (code) => {
+      if (code === 0) resolve()
+      else reject(new Error(`${cmd} exited ${code}: ${stderr.trim()}`))
+    })
+  })
 }
 
 function adb(serial: string, args: string[], timeoutMs = 30_000) {
@@ -175,19 +209,12 @@ export class MagiskService {
       if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true })
       mkdirSync(rootfsDir, { recursive: true })
 
-      // ── 3. Extract initramfs with bsdcpio ──────────────────────────────
+      // ── 3. Extract initramfs with bsdcpio (async to avoid ENOBUFS) ────
       onProgress(40, 'Extracting initramfs…')
-      const { readFileSync: rfs } = await import('fs')
-      const initrdData = rfs(originalInitrd)
-      const extractR = spawnSync('/usr/bin/cpio', ['-id'], {
-        cwd: rootfsDir,
-        input: initrdData,
-        timeout: 120_000,
-      })
-      if ((extractR.status ?? 1) !== 0) {
-        const err = extractR.stderr?.toString() ?? ''
-        throw new Error(`cpio extract failed: ${err}`)
-      }
+      // Copy initramfs into tmpDir so cpio can read it as a file
+      const workInitrd = join(tmpDir, 'initramfs.img')
+      copyFileSync(originalInitrd, workInitrd)
+      await spawnPiped('/usr/bin/cpio', ['-id'], { cwd: rootfsDir, inputFile: workInitrd })
 
       const initPath = join(rootfsDir, 'init')
       if (!existsSync(initPath)) {
@@ -222,36 +249,26 @@ export class MagiskService {
       mkdirSync(join(rootfsDir, '.magisk'), { recursive: true })
       writeFileSync(join(rootfsDir, '.magisk', 'config'), 'RECOVERYMODE=false\n')
 
-      // ── 6. Repack cpio ────────────────────────────────────────────────
+      // ── 6. Repack cpio (async to avoid ENOBUFS on 47MB archive) ──────
       onProgress(80, 'Repacking initramfs…')
       const findR = spawnSync('find', ['.'], {
-        cwd: rootfsDir,
-        encoding: 'utf-8',
-        timeout: 30_000,
+        cwd: rootfsDir, encoding: 'utf-8', timeout: 30_000,
       })
-      if ((findR.status ?? 1) !== 0) {
-        throw new Error(`find failed: ${findR.stderr}`)
-      }
-      // Pass file list as Buffer so encoding:null doesn't mangle it
-      const fileListBuf = Buffer.from(
-        findR.stdout.split('\n').filter(Boolean).sort().join('\n') + '\n',
-        'utf-8',
-      )
-      const packR = spawnSync('/usr/bin/cpio', ['-o', '--format', 'newc'], {
-        cwd: rootfsDir,
-        input: fileListBuf,
-        encoding: null,
-        timeout: 120_000,
-      })
-      if ((packR.status ?? 1) !== 0) {
-        const errMsg = packR.stderr ? Buffer.from(packR.stderr).toString() : 'no stderr'
-        throw new Error(`cpio repack failed: ${errMsg}`)
-      }
+      if ((findR.status ?? 1) !== 0) throw new Error(`find failed: ${findR.stderr}`)
 
-      // ── 7. Save and clean up ──────────────────────────────────────────
-      onProgress(95, 'Saving patched initramfs…')
+      // Write file list to a temp file so we can pipe it to cpio stdin as a stream
+      const fileListPath = join(tmpDir, 'filelist.txt')
+      writeFileSync(
+        fileListPath,
+        findR.stdout.split('\n').filter(Boolean).sort().join('\n') + '\n',
+      )
+
       const patchedPath = this.patchedInitrdFor(originalInitrd)
-      writeFileSync(patchedPath, Buffer.from(packR.stdout as Buffer))
+      await spawnPiped('/usr/bin/cpio', ['-o', '--format', 'newc'], {
+        cwd: rootfsDir,
+        inputFile: fileListPath,
+        outputFile: patchedPath,
+      })
       rmSync(tmpDir, { recursive: true, force: true })
 
       onProgress(100, 'initramfs patched with Magisk')
