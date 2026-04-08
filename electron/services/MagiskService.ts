@@ -182,7 +182,7 @@ export class MagiskService {
 
       const unpack = this.runMagiskboot(['unpack', workInitrd], tmpDir)
       if (!unpack.ok) {
-        const detail = unpack.spawnError ?? unpack.stderr || unpack.stdout || 'no output'
+        const detail = unpack.spawnError ?? (unpack.stderr || unpack.stdout || 'no output')
         throw new Error(`magiskboot unpack failed: ${detail}`)
       }
 
@@ -209,7 +209,7 @@ export class MagiskService {
         tmpDir,
       )
       if (!addR.ok) {
-        const detail = addR.spawnError ?? addR.stderr || addR.stdout || 'no output'
+        const detail = addR.spawnError ?? (addR.stderr || addR.stdout || 'no output')
         throw new Error(`magiskboot cpio patch failed: ${detail}`)
       }
 
@@ -218,7 +218,7 @@ export class MagiskService {
       const patchedPath = this.patchedInitrdFor(originalInitrd)
       const repack = this.runMagiskboot(['repack', workInitrd, patchedPath], tmpDir)
       if (!repack.ok) {
-        const detail = repack.spawnError ?? repack.stderr || repack.stdout || 'no output'
+        const detail = repack.spawnError ?? (repack.stderr || repack.stdout || 'no output')
         throw new Error(`magiskboot repack failed: ${detail}`)
       }
 
