@@ -25,6 +25,7 @@ Head to [Releases](https://github.com/wisnuub/nunu/releases) and grab the latest
 - **Device certification** — sets up Google Play compatibility so certified apps work out of the box
 - **Game library** — browse, install, and launch popular Android games from one place
 - **Google account** — sign in to sync saves and purchases across devices
+- **Google Play Store** — optional Magisk-based GApps install brings Play Store to the AOSP image
 - **Smart updates** — Android engine updates download as small delta patches rather than full images
 
 ---
@@ -72,7 +73,7 @@ nunu (this repo)
 | [nunu-apple](https://github.com/wisnuub/nunu-apple) | macOS VM engine — Cuttlefish + Virtualization.framework |
 | [nunu-windows](https://github.com/wisnuub/nunu-windows) | Windows VM engine — QEMU + WHPX |
 
-**First launch** runs the full onboarding flow: download → device certification → Google Sign-In.  
+**First launch** runs the full onboarding flow: Welcome → Install Engine → Sign In → Complete.  
 **Every launch after that** goes straight to your game library — no setup screens.
 
 ### Update / patch system
@@ -88,6 +89,10 @@ brew install xdelta
 ```
 If xdelta3 is not available, nunu falls back to a full image download automatically.
 
+### Google Play Store (macOS)
+
+Settings → Engine → **Patch initramfs** injects Magisk into the Cuttlefish initramfs on the host before the VM starts. Once the VM is running, **Install GApps** pushes a minimal GApps package (Play Store + Google Account, no Chrome or Gmail) as a Magisk module and reboots. Everything is automatic — `magiskboot` and the Magisk APK are downloaded by nunu.
+
 ### Google Sign-In setup (for developers)
 
 Replace the placeholder `clientID` in [electron/services/InstallationService.ts](electron/services/InstallationService.ts) and the webview URL in [src/views/Onboarding/SignInStep.tsx](src/views/Onboarding/SignInStep.tsx) with your OAuth 2.0 client ID from Google Cloud Console. Register `nunu://oauth` as an authorized redirect URI.
@@ -96,10 +101,13 @@ Replace the placeholder `clientID` in [electron/services/InstallationService.ts]
 
 ## Data location
 
-All runtime data lives in `~/.nunu/`:
+All runtime data lives under `~/.nunu/` — delete this folder to fully uninstall:
 
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `nunu-windows/` | Windows engine (nunu-windows) |
-| `android-<version>-arm64.img` | Android disk image |
-| `android-version.txt` | Installed version string |
+| `~/.nunu/config.json` | App settings and custom image path |
+| `~/.nunu/engines/nunu-apple/` | macOS engine (NunuVM.app) |
+| `~/.nunu/cuttlefish/` | Cuttlefish VM disk images (macOS) |
+| `~/.nunu/sdk/` | Android SDK — emulator + platform-tools (Windows) |
+| `~/.nunu/avd/` | Android Virtual Device files (Windows) |
+| `~/.nunu/magisk/` | magiskboot binary + Magisk APK for GApps patching |
