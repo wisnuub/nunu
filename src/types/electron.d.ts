@@ -70,6 +70,10 @@ declare global {
         }) => void
       ) => () => void
 
+      removeLockscreen: () => Promise<{ success: boolean; error?: string }>
+      pushBootAnimation: (zipPath: string) => Promise<{ success: boolean; error?: string }>
+      pickBootAnimation: () => Promise<string | null>
+
       patchInitrdForGApps: () => Promise<{ success: boolean; patchedPath?: string; error?: string }>
       installGApps: () => Promise<{ success: boolean; error?: string }>
       onGAppsProgress: (callback: (event: { percent: number; status: string }) => void) => () => void

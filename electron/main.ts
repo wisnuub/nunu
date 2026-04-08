@@ -954,6 +954,44 @@ ipcMain.handle('vm:uninstall', async () => {
   return { success: true }
 })
 
+// ── Android customisation IPC ─────────────────────────────────────────────────
+
+ipcMain.handle('android:remove-lockscreen', async () => {
+  if (!vmAdbAddress) return { success: false, error: 'VM is not running' }
+  try {
+    await runAdb(['-s', vmAdbAddress, 'shell', 'locksettings', 'set-disabled', 'true'])
+    await runAdb(['-s', vmAdbAddress, 'shell', 'settings', 'put', 'secure', 'lockscreen.disabled', '1'])
+    await runAdb(['-s', vmAdbAddress, 'shell', 'settings', 'put', 'global', 'stay_on_while_plugged_in', '3'])
+    return { success: true }
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('android:push-bootanimation', async (_event, zipPath: string) => {
+  if (!vmAdbAddress) return { success: false, error: 'VM is not running' }
+  if (!existsSync(zipPath)) return { success: false, error: 'File not found: ' + zipPath }
+  try {
+    // Requires Magisk root — remount system then push
+    await runAdb(['-s', vmAdbAddress, 'shell', 'su', '-c', 'mount -o rw,remount /system'])
+    await runAdb(['-s', vmAdbAddress, 'push', zipPath, '/system/media/bootanimation.zip'])
+    await runAdb(['-s', vmAdbAddress, 'shell', 'su', '-c', 'chmod 644 /system/media/bootanimation.zip'])
+    return { success: true }
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('android:pick-bootanimation', async () => {
+  const { dialog } = await import('electron')
+  const result = await dialog.showOpenDialog({
+    title: 'Select bootanimation.zip',
+    filters: [{ name: 'Zip Archive', extensions: ['zip'] }],
+    properties: ['openFile'],
+  })
+  return result.canceled ? null : result.filePaths[0]
+})
+
 ipcMain.handle('vm:openGoogleSetup', async () => {
   if (!vmAdbAddress) return { success: false, error: 'VM is not running' }
   try {

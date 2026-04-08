@@ -93,6 +93,11 @@ contextBridge.exposeInMainWorld('nunu', {
     return () => ipcRenderer.removeListener('safetynet:progress', handler)
   },
 
+  // Android customisation
+  removeLockscreen: () => ipcRenderer.invoke('android:remove-lockscreen'),
+  pushBootAnimation: (zipPath: string) => ipcRenderer.invoke('android:push-bootanimation', zipPath),
+  pickBootAnimation: () => ipcRenderer.invoke('android:pick-bootanimation'),
+
   // GApps (Magisk-based: patch initramfs then provision via ADB)
   patchInitrdForGApps: () => ipcRenderer.invoke('gapps:patch-initrd'),
   installGApps: () => ipcRenderer.invoke('gapps:install'),

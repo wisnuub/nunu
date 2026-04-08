@@ -41,6 +41,57 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
   )
 }
 
+function AndroidCustomSection() {
+  const [lockMsg, setLockMsg] = useState('')
+  const [lockBusy, setLockBusy] = useState(false)
+  const [animMsg, setAnimMsg] = useState('')
+  const [animBusy, setAnimBusy] = useState(false)
+
+  const handleRemoveLockscreen = async () => {
+    setLockBusy(true)
+    setLockMsg('')
+    const r = await window.nunu?.removeLockscreen?.()
+    setLockMsg(r?.success ? 'Lockscreen disabled.' : (r?.error ?? 'Failed'))
+    setLockBusy(false)
+  }
+
+  const handlePickBootAnimation = async () => {
+    setAnimBusy(true)
+    setAnimMsg('')
+    const zipPath = await window.nunu?.pickBootAnimation?.()
+    if (!zipPath) { setAnimBusy(false); return }
+    setAnimMsg('Pushing…')
+    const r = await window.nunu?.pushBootAnimation?.(zipPath)
+    setAnimMsg(r?.success ? 'Boot animation updated. Reboot to apply.' : (r?.error ?? 'Failed'))
+    setAnimBusy(false)
+  }
+
+  return (
+    <Section title="Android">
+      <Row label="Lockscreen" hint="Disable lock screen on boot">
+        <button
+          onClick={handleRemoveLockscreen}
+          disabled={lockBusy}
+          className="px-3 py-1.5 rounded-[6px] text-xs font-medium text-white/70 border border-white/10 hover:bg-white/5 transition-colors focus:outline-none disabled:opacity-50"
+        >
+          {lockBusy ? 'Applying…' : 'Disable'}
+        </button>
+      </Row>
+      {lockMsg && <div className="px-5 pb-3"><p className={`text-xs ${lockMsg.includes('disabled') ? 'text-[#16A34A]' : 'text-red-400'}`}>{lockMsg}</p></div>}
+      <Row label="Boot animation" hint="Custom bootanimation.zip (requires Magisk root)">
+        <button
+          onClick={handlePickBootAnimation}
+          disabled={animBusy}
+          className="px-3 py-1.5 rounded-[6px] text-xs font-medium text-white/70 border border-white/10 hover:bg-white/5 transition-colors focus:outline-none disabled:opacity-50"
+        >
+          {animBusy ? 'Pushing…' : 'Choose file…'}
+        </button>
+      </Row>
+      {animMsg && <div className="px-5 pb-3"><p className={`text-xs ${animMsg.includes('updated') ? 'text-[#16A34A]' : 'text-white/40'}`}>{animMsg}</p></div>}
+    </Section>
+  )
+}
+
 export function Settings() {
   const { hasUpdate, pendingUpdate, isSignedIn, userEmail, signOut, signIn, setOnboardingDone, setOnboardingStep } = useAppStore()
   const isMac = window.nunu?.platform === 'darwin'
@@ -577,6 +628,11 @@ export function Settings() {
             </div>
           )}
         </Section>
+      )}
+
+      {/* Android customisation — macOS only, VM must be running */}
+      {isMac && vmRunning && (
+        <AndroidCustomSection />
       )}
 
       {/* General */}
