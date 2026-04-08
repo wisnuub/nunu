@@ -229,21 +229,29 @@ export class MagiskService {
         encoding: 'utf-8',
         timeout: 30_000,
       })
-      const fileList = findR.stdout.split('\n').filter(Boolean).sort().join('\n')
+      if ((findR.status ?? 1) !== 0) {
+        throw new Error(`find failed: ${findR.stderr}`)
+      }
+      // Pass file list as Buffer so encoding:null doesn't mangle it
+      const fileListBuf = Buffer.from(
+        findR.stdout.split('\n').filter(Boolean).sort().join('\n') + '\n',
+        'utf-8',
+      )
       const packR = spawnSync('/usr/bin/cpio', ['-o', '--format', 'newc'], {
         cwd: rootfsDir,
-        input: fileList,
-        encoding: null,   // null = return raw Buffers
+        input: fileListBuf,
+        encoding: null,
         timeout: 120_000,
       })
       if ((packR.status ?? 1) !== 0) {
-        throw new Error(`cpio repack failed: ${packR.stderr?.toString()}`)
+        const errMsg = packR.stderr ? Buffer.from(packR.stderr).toString() : 'no stderr'
+        throw new Error(`cpio repack failed: ${errMsg}`)
       }
 
       // ── 7. Save and clean up ──────────────────────────────────────────
       onProgress(95, 'Saving patched initramfs…')
       const patchedPath = this.patchedInitrdFor(originalInitrd)
-      writeFileSync(patchedPath, packR.stdout as Buffer)
+      writeFileSync(patchedPath, Buffer.from(packR.stdout as Buffer))
       rmSync(tmpDir, { recursive: true, force: true })
 
       onProgress(100, 'initramfs patched with Magisk')
