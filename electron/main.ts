@@ -206,6 +206,9 @@ ipcMain.handle('install:start', async (_event, options: { androidVersion?: strin
       }
     })
 
+    // Ensure AVD home exists so the emulator doesn't fall back to ~/.avd/
+    if (!existsSync(nunuAvdHome())) mkdirSync(nunuAvdHome(), { recursive: true })
+
     send(100, 'Android environment ready')
     return { success: true }
   } catch (err: unknown) {
@@ -731,10 +734,16 @@ function spawnNunuVm(options: {
 
 // ── VM helpers ───────────────────────────────────────────────────────────────
 
+function nunuAvdHome() {
+  return join(app.getPath('home'), '.nunu', 'avd')
+}
+
 function avmSpawnEnv() {
   const sdk = nunuSdkRoot()
+  const avd = nunuAvdHome()
   return {
     ...process.env,
+    ANDROID_AVD_HOME: avd,
     ...(existsSync(sdk) ? { ANDROID_SDK_ROOT: sdk, ANDROID_HOME: sdk } : {}),
   }
 }
@@ -942,13 +951,17 @@ ipcMain.handle('vm:uninstall', async () => {
   stopVmProcess()
   mainWindow?.webContents.send('vm:status', { status: 'stopped' })
 
-  const home = app.getPath('home')
-  const avdDir  = join(home, '.avd', 'avm_nunu.avd')
-  const avdIni  = join(home, '.avd', 'avm_nunu.ini')
-  const shaderCache = join(home, '.avd', 'shader_cache')
-
   const { rmSync, existsSync: fsExists } = await import('fs')
-  for (const p of [avdDir, avdIni, shaderCache]) {
+  // Remove AVD directory (now always under ~/.nunu/avd/)
+  // Also sweep legacy ~/.avd/ locations for users upgrading from older versions
+  const home = app.getPath('home')
+  const toRemove = [
+    nunuAvdHome(),
+    join(home, '.avd', 'avm_nunu.avd'),
+    join(home, '.avd', 'avm_nunu.ini'),
+    join(home, '.avd', 'shader_cache'),
+  ]
+  for (const p of toRemove) {
     try { if (fsExists(p)) rmSync(p, { recursive: true, force: true }) } catch { /* ignore */ }
   }
   return { success: true }
