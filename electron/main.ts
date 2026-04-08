@@ -1015,24 +1015,18 @@ ipcMain.handle('vm:openGoogleSetup', async () => {
   }
 })
 
-// ── GApps / Magisk IPC ───────────────────────────────────────────────────────
+// ── GApps IPC ────────────────────────────────────────────────────────────────
 
-// Phase 1: patch initramfs on the host (VM must be stopped)
-ipcMain.handle('gapps:patch-initrd', async () => {
+// Install GApps via adb root + remount (VM must be running)
+// Cuttlefish userdebug builds allow adb root — no initramfs patching required.
+ipcMain.handle('gapps:install', async () => {
   if (!mainWindow) return { success: false, error: 'No window' }
-  if (vmProcess) return { success: false, error: 'Stop Android before patching the initramfs.' }
+  if (!vmAdbAddress) return { success: false, error: 'VM is not running. Start Android first.' }
 
-  const images = findCuttlefishImages()
-  if (!images) return { success: false, error: 'Cuttlefish images not found.' }
-
-  // Always patch from the original, not a previously-patched file
-  const originalInitrd = images.initrd.endsWith('_magisk.img')
-    ? images.initrd.replace('_magisk.img', '.img')
-    : images.initrd
-
-  const svc = new MagiskService()
+  const { GAppsRootService } = await import('./services/GAppsRootService')
+  const svc = new GAppsRootService()
   try {
-    const result = await svc.patchInitrd(originalInitrd, (pct, status) => {
+    const result = await svc.install(vmAdbAddress, (pct, status) => {
       mainWindow?.webContents.send('gapps:progress', { percent: pct, status })
     })
     return result
@@ -1041,20 +1035,9 @@ ipcMain.handle('gapps:patch-initrd', async () => {
   }
 })
 
-// Phase 2: post-boot provisioning (VM must be running + adb-ready)
-ipcMain.handle('gapps:install', async () => {
-  if (!mainWindow) return { success: false, error: 'No window' }
-  if (!vmAdbAddress) return { success: false, error: 'VM is not running. Start Android first.' }
-
-  const svc = new MagiskService()
-  try {
-    const result = await svc.provisionGApps(vmAdbAddress, (pct, status) => {
-      mainWindow?.webContents.send('gapps:progress', { percent: pct, status })
-    })
-    return result
-  } catch (err: unknown) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) }
-  }
+// Keep patch-initrd handler for future Magisk/KernelSU support
+ipcMain.handle('gapps:patch-initrd', async () => {
+  return { success: false, error: 'Initramfs patching is not required for Cuttlefish — use Install GApps directly.' }
 })
 
 ipcMain.handle('vm:launch', async (_event, options: {

@@ -120,11 +120,10 @@ export function Settings() {
   const [googleSetupBusy, setGoogleSetupBusy] = useState(false)
 
   // GApps install state
-  const [gappsPhase, setGappsPhase] = useState<'idle' | 'patching' | 'provisioning'>('idle')
+  const [gappsBusy, setGappsBusy] = useState(false)
   const [gappsPct, setGappsPct] = useState(0)
   const [gappsStatus, setGappsStatus] = useState('')
   const [gappsMsg, setGappsMsg] = useState('')
-  const [initrdPatched, setInitrdPatched] = useState(false)
 
   // Engine (nunu-apple) state
   const [engineInstalled, setEngineInstalled] = useState<boolean | null>(null)
@@ -217,31 +216,8 @@ export function Settings() {
     setGoogleSetupBusy(false)
   }
 
-  const handlePatchInitrd = async () => {
-    setGappsPhase('patching')
-    setGappsPct(0)
-    setGappsStatus('Starting…')
-    setGappsMsg('')
-    const unsub = window.nunu?.onGAppsProgress?.((evt) => {
-      setGappsPct(evt.percent)
-      setGappsStatus(evt.status)
-      if (evt.percent >= 100) {
-        unsub?.()
-        setGappsPhase('idle')
-        setInitrdPatched(true)
-        setGappsMsg('initramfs patched. Now start Android, then click "Install GApps".')
-      }
-    })
-    const result = await window.nunu?.patchInitrdForGApps?.()
-    if (result && !result.success) {
-      setGappsMsg(result.error ?? 'Patch failed')
-      setGappsPhase('idle')
-      unsub?.()
-    }
-  }
-
   const handleInstallGApps = async () => {
-    setGappsPhase('provisioning')
+    setGappsBusy(true)
     setGappsPct(0)
     setGappsStatus('Starting…')
     setGappsMsg('')
@@ -250,14 +226,14 @@ export function Settings() {
       setGappsStatus(evt.status)
       if (evt.percent >= 100) {
         unsub?.()
-        setGappsPhase('idle')
-        setGappsMsg('Google Play installed. Android is rebooting — wait ~30s then press Start.')
+        setGappsBusy(false)
+        setGappsMsg('Google Play installed — Android is rebooting, wait ~30s then Start again.')
       }
     })
     const result = await window.nunu?.installGApps?.()
     if (result && !result.success) {
       setGappsMsg(result.error ?? 'Install failed')
-      setGappsPhase('idle')
+      setGappsBusy(false)
       unsub?.()
     }
   }
@@ -529,45 +505,27 @@ export function Settings() {
                   <p className="text-white/40 text-xs">{googleSetupMsg}</p>
                 </div>
               )}
-              {/* Google Play — two-phase Magisk install */}
-              {isMac && gappsPhase === 'idle' && (
+              {/* Google Play — adb root install */}
+              {isMac && !gappsBusy && (
                 <Row
                   label="Google Play"
-                  hint={
-                    initrdPatched
-                      ? vmRunning ? 'Android running — ready to provision' : 'Start Android to continue'
-                      : 'Patch initramfs with Magisk, then install Play Store'
-                  }
+                  hint={vmRunning ? 'Install Play Store via adb root' : 'Start Android first'}
                 >
-                  {!initrdPatched ? (
-                    <button
-                      onClick={handlePatchInitrd}
-                      disabled={vmRunning}
-                      title={vmRunning ? 'Stop Android first' : undefined}
-                      className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white focus:outline-none disabled:opacity-40"
-                      style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
-                    >
-                      Patch initramfs
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleInstallGApps}
-                      disabled={!vmRunning}
-                      title={!vmRunning ? 'Start Android first' : undefined}
-                      className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white focus:outline-none disabled:opacity-40"
-                      style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
-                    >
-                      Install GApps
-                    </button>
-                  )}
+                  <button
+                    onClick={handleInstallGApps}
+                    disabled={!vmRunning}
+                    title={!vmRunning ? 'Start Android first' : undefined}
+                    className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white focus:outline-none disabled:opacity-40"
+                    style={{ background: 'linear-gradient(135deg, #5B6EF5, #8B5CF6)' }}
+                  >
+                    Install GApps
+                  </button>
                 </Row>
               )}
-              {gappsPhase !== 'idle' && (
+              {gappsBusy && (
                 <div className="px-5 py-4">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm font-medium text-white">
-                      {gappsPhase === 'patching' ? 'Patching initramfs…' : 'Installing Google Play…'}
-                    </p>
+                    <p className="text-sm font-medium text-white">Installing Google Play…</p>
                     <span className="text-white/40 text-xs">{gappsPct}%</span>
                   </div>
                   <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-2">
@@ -581,7 +539,7 @@ export function Settings() {
               )}
               {gappsMsg && (
                 <div className="px-5 pb-4">
-                  <p className={`text-xs ${gappsMsg.includes('patched') || gappsMsg.includes('installed') ? 'text-[#16A34A]' : 'text-red-400'}`}>
+                  <p className={`text-xs ${gappsMsg.includes('installed') ? 'text-[#16A34A]' : 'text-red-400'}`}>
                     {gappsMsg}
                   </p>
                 </div>
