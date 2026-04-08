@@ -233,11 +233,11 @@ export class MagiskService {
       const packR = spawnSync('/usr/bin/cpio', ['-o', '--format', 'newc'], {
         cwd: rootfsDir,
         input: fileList,
-        encoding: 'buffer',
+        encoding: null,   // null = return raw Buffers
         timeout: 120_000,
       })
       if ((packR.status ?? 1) !== 0) {
-        throw new Error(`cpio repack failed: ${(packR.stderr as Buffer).toString()}`)
+        throw new Error(`cpio repack failed: ${packR.stderr?.toString()}`)
       }
 
       // ── 7. Save and clean up ──────────────────────────────────────────
