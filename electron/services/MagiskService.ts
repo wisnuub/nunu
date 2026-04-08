@@ -20,9 +20,9 @@ import { spawnSync } from 'child_process'
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const MAGISK_API = 'https://api.github.com/repos/topjohnwu/Magisk/releases?per_page=5'
-// macOS ARM64 standalone magiskboot builds by ookiineko (well-maintained community port)
+// macOS ARM64 standalone magiskboot — PinNaCode/magiskboot_build "last-ci" tag
 const MAGISKBOOT_MACOS_API =
-  'https://api.github.com/repos/ookiineko/magiskboot_build/releases?per_page=1'
+  'https://api.github.com/repos/PinNaCode/magiskboot_build/releases/tags/last-ci'
 
 export type MagiskProgressFn = (pct: number, status: string) => void
 
@@ -307,32 +307,41 @@ export class MagiskService {
       rmSync(this.magiskbootPath)
     }
 
-    // 2. Try ookiineko/magiskboot_build — community macOS ARM64 port
+    // 2. Try PinNaCode/magiskboot_build "last-ci" — specific tag, returns single release object
     let downloadErr = ''
     try {
-      const releases = await fetchJson<GHRelease[]>(MAGISKBOOT_MACOS_API)
-      const rel = releases[0]
-      if (rel) {
-        // Asset names vary: osx, darwin, macos, apple, arm64, aarch64
-        const asset = rel.assets.find((a) => {
+      const rel = await fetchJson<GHRelease>(MAGISKBOOT_MACOS_API)
+      // Pick macOS ARM64 asset — progressively broader fallbacks
+      const asset =
+        rel.assets.find((a) => {
           const n = a.name.toLowerCase()
           return (
             (n.includes('darwin') || n.includes('macos') || n.includes('osx') || n.includes('apple')) &&
-            (n.includes('arm64') || n.includes('aarch64') || !n.includes('x86'))
+            (n.includes('arm64') || n.includes('aarch64'))
           )
+        }) ??
+        rel.assets.find((a) => {
+          const n = a.name.toLowerCase()
+          return n.includes('darwin') || n.includes('macos') || n.includes('osx') || n.includes('apple')
+        }) ??
+        // Last resort: any asset that isn't a checksum / Windows / x86_64
+        rel.assets.find((a) => {
+          const n = a.name.toLowerCase()
+          return !n.endsWith('.sha256') && !n.endsWith('.md5') &&
+                 !n.includes('x86_64') && !n.includes('windows') && !n.includes('win')
         })
-        if (asset) {
-          onProgress(4, `Downloading magiskboot ${rel.tag_name}…`)
-          await downloadFile(asset.browser_download_url, this.magiskbootPath, (f) => {
-            onProgress(4 + Math.round(f * 14), `Downloading magiskboot… ${Math.round(f * 100)}%`)
-          })
-          spawnSync('chmod', ['+x', this.magiskbootPath])
-          if (this.magiskbootWorks()) return
-          downloadErr = 'Downloaded binary does not execute on this machine (wrong architecture?)'
-          rmSync(this.magiskbootPath)
-        } else {
-          downloadErr = `No macOS ARM64 asset found in release ${rel.tag_name}`
-        }
+
+      if (asset) {
+        onProgress(4, `Downloading magiskboot (${asset.name})…`)
+        await downloadFile(asset.browser_download_url, this.magiskbootPath, (f) => {
+          onProgress(4 + Math.round(f * 14), `Downloading magiskboot… ${Math.round(f * 100)}%`)
+        })
+        spawnSync('chmod', ['+x', this.magiskbootPath])
+        if (this.magiskbootWorks()) return
+        downloadErr = `Downloaded ${asset.name} but it does not execute — wrong architecture?`
+        rmSync(this.magiskbootPath)
+      } else {
+        downloadErr = `No suitable asset in release ${rel.tag_name}. Available: ${rel.assets.map(a => a.name).join(', ')}`
       }
     } catch (e) {
       downloadErr = e instanceof Error ? e.message : String(e)
@@ -341,8 +350,7 @@ export class MagiskService {
     throw new Error(
       `magiskboot for macOS not available automatically. ${downloadErr ? `(${downloadErr}) ` : ''}` +
       'Please install it manually:\n' +
-      '  1. Download from https://github.com/ookiineko/magiskboot_build/releases\n' +
-      '     (pick the darwin/macos arm64 binary)\n' +
+      '  1. Download from https://github.com/PinNaCode/magiskboot_build/releases/tag/last-ci\n' +
       '  2. chmod +x magiskboot\n' +
       '  3. Move to ~/.nunu/magisk/magiskboot',
     )
