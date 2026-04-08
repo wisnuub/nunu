@@ -18,28 +18,6 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install AVM build deps
-        run: brew install cmake ninja sdl2 sdl2_ttf molten-vk
-
-      - name: Build AVM (C++)
-        run: |
-          cmake -B native/avm/build -S native/avm -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DAVM_ENABLE_HVF=ON \
-            -DAVM_ENABLE_MOLTENVK=ON \
-            -DAVM_ENABLE_KVM=OFF \
-            -DAVM_ENABLE_WHPX=OFF \
-            -DAVM_ENABLE_OVERLAY=OFF
-          cmake --build native/avm/build --parallel
-
-      - name: Codesign AVM binary
-        run: |
-          codesign \
-            --entitlements native/avm/avm.entitlements \
-            --force \
-            -s - \
-            native/avm/build/avm
-
       - name: Write Google credentials
         run: |
           mkdir -p native/credentials
@@ -58,8 +36,17 @@ jobs:
 
       - name: Sign app (ad-hoc + Hypervisor entitlement)
         run: |
+          cat > nunu.entitlements <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>com.apple.security.cs.allow-jit</key><true/>
+            <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+            <key>com.apple.security.cs.disable-library-validation</key><true/>
+          </dict></plist>
+          EOF
           codesign \
-            --entitlements native/avm/avm.entitlements \
+            --entitlements nunu.entitlements \
             --force \
             --deep \
             --sign - \
