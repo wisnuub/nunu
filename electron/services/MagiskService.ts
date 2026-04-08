@@ -171,20 +171,16 @@ export class MagiskService {
       onProgress(22, 'Downloading Magisk…')
       await this.ensureMagiskApk(onProgress)
 
-      // ── 3. Unpack initramfs ────────────────────────────────────────────
-      onProgress(40, 'Unpacking initramfs…')
+      // ── 3. Set up work directory ──────────────────────────────────────
+      onProgress(40, 'Preparing initramfs…')
       if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true })
       mkdirSync(tmpDir, { recursive: true })
 
-      // Copy initramfs into workdir so magiskboot can work alongside it
+      // Cuttlefish initramfs is a plain cpio archive (not a boot.img).
+      // magiskboot cpio operates directly on the file — no unpack/repack needed.
+      const patchedPath = this.patchedInitrdFor(originalInitrd)
       const workInitrd = join(tmpDir, 'initramfs.img')
       copyFileSync(originalInitrd, workInitrd)
-
-      const unpack = this.runMagiskboot(['unpack', workInitrd], tmpDir)
-      if (!unpack.ok) {
-        const detail = unpack.spawnError ?? (unpack.stderr || unpack.stdout || 'no output')
-        throw new Error(`magiskboot unpack failed: ${detail}`)
-      }
 
       // ── 4. Extract magiskinit from the Magisk APK ──────────────────────
       onProgress(55, 'Extracting magiskinit…')
@@ -201,11 +197,12 @@ export class MagiskService {
       copyFileSync(magiskinitSrc, magiskinitDst)
       spawnSync('chmod', ['+x', magiskinitDst])
 
-      // ── 5. Inject magiskinit into ramdisk ─────────────────────────────
-      onProgress(65, 'Patching ramdisk…')
-      // Replace /init with magiskinit — each token must be a separate argument
+      // ── 5. Inject magiskinit into the cpio archive ────────────────────
+      onProgress(65, 'Patching initramfs cpio…')
+      // magiskboot cpio <file> add <perm> <dest-name> <src-file>
+      // Injects magiskinit as /init, which Magisk uses to take over init.
       const addR = this.runMagiskboot(
-        ['cpio', 'ramdisk.cpio', 'add', '750', 'init', 'magiskinit'],
+        ['cpio', 'initramfs.img', 'add', '750', 'init', 'magiskinit'],
         tmpDir,
       )
       if (!addR.ok) {
@@ -213,14 +210,9 @@ export class MagiskService {
         throw new Error(`magiskboot cpio patch failed: ${detail}`)
       }
 
-      // ── 6. Repack initramfs ───────────────────────────────────────────
-      onProgress(78, 'Repacking initramfs…')
-      const patchedPath = this.patchedInitrdFor(originalInitrd)
-      const repack = this.runMagiskboot(['repack', workInitrd, patchedPath], tmpDir)
-      if (!repack.ok) {
-        const detail = repack.spawnError ?? (repack.stderr || repack.stdout || 'no output')
-        throw new Error(`magiskboot repack failed: ${detail}`)
-      }
+      // ── 6. Move patched initramfs to output path ──────────────────────
+      onProgress(90, 'Saving patched initramfs…')
+      copyFileSync(workInitrd, patchedPath)
 
       // ── 7. Cleanup ────────────────────────────────────────────────────
       rmSync(tmpDir, { recursive: true, force: true })
