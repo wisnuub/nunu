@@ -201,9 +201,11 @@ export class MagiskService {
       onProgress(65, 'Patching initramfs cpio…')
       // magiskboot cpio <file> add <perm> <dest-name> <src-file>
       // Injects magiskinit as /init, which Magisk uses to take over init.
-      // magiskboot cpio requires each command to be a single quoted argument
+      // 'patch' is the correct command — it backs up the original init,
+      // injects magiskinit as the new /init, and sets up .magisk/ structure.
+      // magiskboot looks for the magiskinit binary in cwd (tmpDir).
       const addR = this.runMagiskboot(
-        ['cpio', 'initramfs.img', 'add 750 init magiskinit'],
+        ['cpio', 'initramfs.img', 'patch'],
         tmpDir,
       )
       if (!addR.ok) {
