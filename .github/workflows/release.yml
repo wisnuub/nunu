@@ -61,6 +61,7 @@ jobs:
             -volname "nunu" \
             -srcfolder "$STAGING" \
             -ov -format UDZO \
+            -imagekey zlib-level=9 \
             "release/nunu-${{ github.ref_name }}-arm64.dmg"
           rm -rf "$STAGING"
 

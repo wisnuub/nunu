@@ -1,0 +1,29 @@
+{
+  "appId": "com.nunu.launcher",
+  "productName": "nunu",
+  "asar": true,
+  "compression": "maximum",
+  "files": [
+    "dist/**",
+    "dist-electron/**",
+    "!**/*.map",
+    "!**/*.ts",
+    "!**/node_modules/.cache/**",
+    "!**/node_modules/.bin/**"
+  ],
+  "mac": {
+    "target": [{ "target": "dir", "arch": ["arm64"] }],
+    "category": "public.app-category.games",
+    "artifactName": "${productName}-${version}-arm64.dmg"
+  },
+  "dmg": {
+    "compression": "maximum"
+  },
+  "win": {
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "artifactName": "${productName}-Setup-${version}.exe"
+  },
+  "directories": {
+    "output": "release"
+  }
+}
