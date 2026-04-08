@@ -118,6 +118,32 @@ export class MagiskService {
   get magiskApkPath()  { return join(this.workDir, 'Magisk.apk') }
   get gappsZipPath()   { return join(this.workDir, 'LiteGApps.zip') }
 
+  // Safe wrapper — always returns a string error even on spawn failure
+  private runMagiskboot(
+    args: string[],
+    cwd?: string,
+  ): { stdout: string; stderr: string; ok: boolean; spawnError?: string } {
+    const r = spawnSync(this.magiskbootPath, args, {
+      encoding: 'utf-8',
+      cwd,
+      timeout: 300_000,
+    })
+    return {
+      stdout:      r.stdout  ?? '',
+      stderr:      r.stderr  ?? '',
+      ok:          (r.status ?? 1) === 0,
+      spawnError:  r.error?.message,
+    }
+  }
+
+  // Returns true if the binary exists AND actually executes on this machine
+  private magiskbootWorks(): boolean {
+    if (!existsSync(this.magiskbootPath)) return false
+    const r = spawnSync(this.magiskbootPath, [], { encoding: 'utf-8', timeout: 5_000 })
+    // status is null only when the OS could not exec the binary at all
+    return r.status !== null
+  }
+
   // Returns path to the patched initramfs if it exists, else null
   patchedInitrdFor(originalInitrd: string): string {
     return originalInitrd.replace(/\.img$/, '_magisk.img')
@@ -154,11 +180,10 @@ export class MagiskService {
       const workInitrd = join(tmpDir, 'initramfs.img')
       copyFileSync(originalInitrd, workInitrd)
 
-      const unpack = spawnSync(this.magiskbootPath, ['unpack', workInitrd], {
-        cwd: tmpDir, encoding: 'utf-8',
-      })
-      if (unpack.status !== 0) {
-        throw new Error(`magiskboot unpack failed: ${unpack.stderr || unpack.stdout}`)
+      const unpack = this.runMagiskboot(['unpack', workInitrd], tmpDir)
+      if (!unpack.ok) {
+        const detail = unpack.spawnError ?? unpack.stderr || unpack.stdout || 'no output'
+        throw new Error(`magiskboot unpack failed: ${detail}`)
       }
 
       // ── 4. Extract magiskinit from the Magisk APK ──────────────────────
@@ -178,26 +203,23 @@ export class MagiskService {
 
       // ── 5. Inject magiskinit into ramdisk ─────────────────────────────
       onProgress(65, 'Patching ramdisk…')
-      // Replace /init with magiskinit
-      const addR = spawnSync(
-        this.magiskbootPath,
-        ['cpio', 'ramdisk.cpio', 'add 750 init magiskinit'],
-        { cwd: tmpDir, encoding: 'utf-8' },
+      // Replace /init with magiskinit — each token must be a separate argument
+      const addR = this.runMagiskboot(
+        ['cpio', 'ramdisk.cpio', 'add', '750', 'init', 'magiskinit'],
+        tmpDir,
       )
-      if (addR.status !== 0) {
-        throw new Error(`magiskboot cpio patch failed: ${addR.stderr || addR.stdout}`)
+      if (!addR.ok) {
+        const detail = addR.spawnError ?? addR.stderr || addR.stdout || 'no output'
+        throw new Error(`magiskboot cpio patch failed: ${detail}`)
       }
 
       // ── 6. Repack initramfs ───────────────────────────────────────────
       onProgress(78, 'Repacking initramfs…')
       const patchedPath = this.patchedInitrdFor(originalInitrd)
-      const repack = spawnSync(
-        this.magiskbootPath,
-        ['repack', workInitrd, patchedPath],
-        { cwd: tmpDir, encoding: 'utf-8' },
-      )
-      if (repack.status !== 0) {
-        throw new Error(`magiskboot repack failed: ${repack.stderr || repack.stdout}`)
+      const repack = this.runMagiskboot(['repack', workInitrd, patchedPath], tmpDir)
+      if (!repack.ok) {
+        const detail = repack.spawnError ?? repack.stderr || repack.stdout || 'no output'
+        throw new Error(`magiskboot repack failed: ${detail}`)
       }
 
       // ── 7. Cleanup ────────────────────────────────────────────────────
@@ -268,43 +290,62 @@ export class MagiskService {
   // ── Private helpers ──────────────────────────────────────────────────────
 
   private async ensureMagiskboot(onProgress: MagiskProgressFn): Promise<void> {
-    if (existsSync(this.magiskbootPath)) return
+    // If binary exists and actually runs, we're done
+    if (this.magiskbootWorks()) return
 
-    // Try ookiineko/magiskboot_build — maintained macOS ARM64 port
-    let downloaded = false
+    // Binary exists but doesn't run (wrong arch, corrupted) — remove it
+    if (existsSync(this.magiskbootPath)) {
+      rmSync(this.magiskbootPath)
+    }
+
+    // 1. Check PATH first (user may have installed manually)
+    const which = spawnSync('which', ['magiskboot'], { encoding: 'utf-8' })
+    if (which.status === 0 && which.stdout.trim()) {
+      copyFileSync(which.stdout.trim(), this.magiskbootPath)
+      spawnSync('chmod', ['+x', this.magiskbootPath])
+      if (this.magiskbootWorks()) return
+      rmSync(this.magiskbootPath)
+    }
+
+    // 2. Try ookiineko/magiskboot_build — community macOS ARM64 port
+    let downloadErr = ''
     try {
       const releases = await fetchJson<GHRelease[]>(MAGISKBOOT_MACOS_API)
       const rel = releases[0]
       if (rel) {
-        const asset = rel.assets.find(
-          (a) => a.name.includes('darwin') || a.name.includes('macos') || a.name.includes('apple'),
-        )
+        // Asset names vary: osx, darwin, macos, apple, arm64, aarch64
+        const asset = rel.assets.find((a) => {
+          const n = a.name.toLowerCase()
+          return (
+            (n.includes('darwin') || n.includes('macos') || n.includes('osx') || n.includes('apple')) &&
+            (n.includes('arm64') || n.includes('aarch64') || !n.includes('x86'))
+          )
+        })
         if (asset) {
           onProgress(4, `Downloading magiskboot ${rel.tag_name}…`)
           await downloadFile(asset.browser_download_url, this.magiskbootPath, (f) => {
             onProgress(4 + Math.round(f * 14), `Downloading magiskboot… ${Math.round(f * 100)}%`)
           })
           spawnSync('chmod', ['+x', this.magiskbootPath])
-          downloaded = true
+          if (this.magiskbootWorks()) return
+          downloadErr = 'Downloaded binary does not execute on this machine (wrong architecture?)'
+          rmSync(this.magiskbootPath)
+        } else {
+          downloadErr = `No macOS ARM64 asset found in release ${rel.tag_name}`
         }
       }
-    } catch { /* fall through */ }
-
-    if (!downloaded) {
-      // Check if it's already in PATH (user installed manually)
-      const which = spawnSync('which', ['magiskboot'], { encoding: 'utf-8' })
-      if (which.status === 0 && which.stdout.trim()) {
-        copyFileSync(which.stdout.trim(), this.magiskbootPath)
-        spawnSync('chmod', ['+x', this.magiskbootPath])
-        return
-      }
-      throw new Error(
-        'magiskboot for macOS not found. Install it manually:\n' +
-        '  brew install magiskboot  OR\n' +
-        '  Download from https://github.com/ookiineko/magiskboot_build/releases\n' +
-        '  and place the binary at ~/.nunu/magisk/magiskboot',
-      )
+    } catch (e) {
+      downloadErr = e instanceof Error ? e.message : String(e)
     }
+
+    throw new Error(
+      `magiskboot for macOS not available automatically. ${downloadErr ? `(${downloadErr}) ` : ''}` +
+      'Please install it manually:\n' +
+      '  1. Download from https://github.com/ookiineko/magiskboot_build/releases\n' +
+      '     (pick the darwin/macos arm64 binary)\n' +
+      '  2. chmod +x magiskboot\n' +
+      '  3. Move to ~/.nunu/magisk/magiskboot',
+    )
   }
 
   private async ensureMagiskApk(onProgress: MagiskProgressFn): Promise<void> {
