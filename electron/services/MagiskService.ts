@@ -160,64 +160,90 @@ export class MagiskService {
     onProgress: MagiskProgressFn,
   ): Promise<{ success: boolean; patchedPath?: string; error?: string }> {
     if (!existsSync(this.workDir)) mkdirSync(this.workDir, { recursive: true })
-    const tmpDir = join(this.workDir, 'tmp_unpack')
+    const tmpDir   = join(this.workDir, 'tmp_patch')
+    const rootfsDir = join(tmpDir, 'rootfs')
 
     try {
-      // ── 1. Get magiskboot ──────────────────────────────────────────────
-      onProgress(2, 'Getting magiskboot for macOS…')
-      await this.ensureMagiskboot(onProgress)
-
-      // ── 2. Get Magisk APK (contains magiskinit) ────────────────────────
-      onProgress(22, 'Downloading Magisk…')
+      // ── 1. Get Magisk APK (contains magiskinit) ────────────────────────
+      // magiskboot cpio cannot parse Cuttlefish's unusual cpio inode values, so
+      // we bypass it entirely and use macOS bsdcpio + standard tools instead.
+      onProgress(10, 'Downloading Magisk…')
       await this.ensureMagiskApk(onProgress)
 
-      // ── 3. Set up work directory ──────────────────────────────────────
-      onProgress(40, 'Preparing initramfs…')
+      // ── 2. Set up work directory ──────────────────────────────────────
+      onProgress(35, 'Preparing workspace…')
       if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true })
-      mkdirSync(tmpDir, { recursive: true })
+      mkdirSync(rootfsDir, { recursive: true })
 
-      // Cuttlefish initramfs is a plain cpio archive (not a boot.img).
-      // magiskboot cpio operates directly on the file — no unpack/repack needed.
-      const patchedPath = this.patchedInitrdFor(originalInitrd)
-      const workInitrd = join(tmpDir, 'initramfs.img')
-      copyFileSync(originalInitrd, workInitrd)
+      // ── 3. Extract initramfs with bsdcpio ──────────────────────────────
+      onProgress(40, 'Extracting initramfs…')
+      const { readFileSync: rfs } = await import('fs')
+      const initrdData = rfs(originalInitrd)
+      const extractR = spawnSync('/usr/bin/cpio', ['-id'], {
+        cwd: rootfsDir,
+        input: initrdData,
+        timeout: 120_000,
+      })
+      if ((extractR.status ?? 1) !== 0) {
+        const err = extractR.stderr?.toString() ?? ''
+        throw new Error(`cpio extract failed: ${err}`)
+      }
 
-      // ── 4. Extract magiskinit from the Magisk APK ──────────────────────
+      const initPath = join(rootfsDir, 'init')
+      if (!existsSync(initPath)) {
+        throw new Error('No /init found in initramfs — unsupported format')
+      }
+
+      // ── 4. Extract magiskinit from Magisk APK ─────────────────────────
       onProgress(55, 'Extracting magiskinit…')
-      const extractR = spawnSync(
+      const unzipR = spawnSync(
         'unzip',
         ['-o', this.magiskApkPath, 'lib/arm64-v8a/libmagiskinit.so', '-d', tmpDir],
         { encoding: 'utf-8' },
       )
-      if (extractR.status !== 0) {
-        throw new Error(`Failed to extract magiskinit: ${extractR.stderr}`)
+      if (unzipR.status !== 0) {
+        throw new Error(`Failed to extract magiskinit: ${unzipR.stderr}`)
       }
       const magiskinitSrc = join(tmpDir, 'lib', 'arm64-v8a', 'libmagiskinit.so')
-      const magiskinitDst = join(tmpDir, 'magiskinit')
-      copyFileSync(magiskinitSrc, magiskinitDst)
-      spawnSync('chmod', ['+x', magiskinitDst])
 
-      // ── 5. Inject magiskinit into the cpio archive ────────────────────
-      onProgress(65, 'Patching initramfs cpio…')
-      // magiskboot cpio <file> add <perm> <dest-name> <src-file>
-      // Injects magiskinit as /init, which Magisk uses to take over init.
-      // 'patch' is the correct command — it backs up the original init,
-      // injects magiskinit as the new /init, and sets up .magisk/ structure.
-      // magiskboot looks for the magiskinit binary in cwd (tmpDir).
-      const addR = this.runMagiskboot(
-        ['cpio', 'initramfs.img', 'patch'],
-        tmpDir,
-      )
-      if (!addR.ok) {
-        const detail = addR.spawnError ?? (addR.stderr || addR.stdout || 'no output')
-        throw new Error(`magiskboot cpio patch failed: ${detail}`)
+      // ── 5. Patch the rootfs ───────────────────────────────────────────
+      onProgress(65, 'Patching init…')
+
+      // Backup original init so magiskinit can hand off to it after setup
+      mkdirSync(join(rootfsDir, '.backup'), { recursive: true })
+      copyFileSync(initPath, join(rootfsDir, '.backup', 'init'))
+      spawnSync('chmod', ['750', join(rootfsDir, '.backup', 'init')])
+
+      // Replace /init with magiskinit
+      copyFileSync(magiskinitSrc, initPath)
+      spawnSync('chmod', ['750', initPath])
+
+      // .magisk/config — required by magiskinit at boot
+      mkdirSync(join(rootfsDir, '.magisk'), { recursive: true })
+      writeFileSync(join(rootfsDir, '.magisk', 'config'), 'RECOVERYMODE=false\n')
+
+      // ── 6. Repack cpio ────────────────────────────────────────────────
+      onProgress(80, 'Repacking initramfs…')
+      const findR = spawnSync('find', ['.'], {
+        cwd: rootfsDir,
+        encoding: 'utf-8',
+        timeout: 30_000,
+      })
+      const fileList = findR.stdout.split('\n').filter(Boolean).sort().join('\n')
+      const packR = spawnSync('/usr/bin/cpio', ['-o', '--format', 'newc'], {
+        cwd: rootfsDir,
+        input: fileList,
+        encoding: 'buffer',
+        timeout: 120_000,
+      })
+      if ((packR.status ?? 1) !== 0) {
+        throw new Error(`cpio repack failed: ${(packR.stderr as Buffer).toString()}`)
       }
 
-      // ── 6. Move patched initramfs to output path ──────────────────────
-      onProgress(90, 'Saving patched initramfs…')
-      copyFileSync(workInitrd, patchedPath)
-
-      // ── 7. Cleanup ────────────────────────────────────────────────────
+      // ── 7. Save and clean up ──────────────────────────────────────────
+      onProgress(95, 'Saving patched initramfs…')
+      const patchedPath = this.patchedInitrdFor(originalInitrd)
+      writeFileSync(patchedPath, packR.stdout as Buffer)
       rmSync(tmpDir, { recursive: true, force: true })
 
       onProgress(100, 'initramfs patched with Magisk')
