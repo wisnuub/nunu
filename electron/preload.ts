@@ -117,6 +117,18 @@ contextBridge.exposeInMainWorld('nunu', {
     return () => ipcRenderer.removeListener('kernelsu:progress', handler)
   },
 
+  // nunu-kernel — download custom kernel (KernelSU built-in + SUSFS)
+  kernelInfo: () => ipcRenderer.invoke('kernel:info'),
+  kernelCheckUpdate: () => ipcRenderer.invoke('kernel:check-update'),
+  kernelDownload: () => ipcRenderer.invoke('kernel:download'),
+  kernelRemove: () => ipcRenderer.invoke('kernel:remove'),
+  onKernelProgress: (callback: (event: { percent: number; status: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { percent: number; status: string }) =>
+      callback(data)
+    ipcRenderer.on('kernel:progress', handler)
+    return () => ipcRenderer.removeListener('kernel:progress', handler)
+  },
+
   // Config (~/.nunu/config.json)
   getConfig: (key: string) => ipcRenderer.invoke('config:get', key),
   setConfig: (key: string, value: unknown) => ipcRenderer.invoke('config:set', key, value),

@@ -131,6 +131,16 @@ export function Settings() {
   const [ksuStatus, setKsuStatus] = useState('')
   const [ksuMsg, setKsuMsg] = useState('')
 
+  // nunu-kernel (custom kernel download) state
+  const [kernelVersion, setKernelVersion] = useState<string | null>(null)
+  const [kernelInstalled, setKernelInstalled] = useState(false)
+  const [kernelBusy, setKernelBusy] = useState(false)
+  const [kernelPct, setKernelPct] = useState(0)
+  const [kernelStatus, setKernelStatus] = useState('')
+  const [kernelMsg, setKernelMsg] = useState('')
+  const [kernelUpdateAvailable, setKernelUpdateAvailable] = useState(false)
+  const [kernelLatestVersion, setKernelLatestVersion] = useState<string | null>(null)
+
   // Engine (nunu-apple) state
   const [engineInstalled, setEngineInstalled] = useState<boolean | null>(null)
   const [engineVersion, setEngineVersion] = useState<string | null>(null)
@@ -150,6 +160,9 @@ export function Settings() {
     window.nunu?.checkEngine?.().then((r) => {
       setEngineInstalled(r.installed)
       setEngineVersion(r.version)
+    })
+    window.nunu?.kernelInfo?.().then((r) => {
+      if (r) { setKernelInstalled(r.installed); setKernelVersion(r.version) }
     })
   }, [])
 
@@ -264,6 +277,55 @@ export function Settings() {
       setKsuBusy(false)
       unsub?.()
     }
+  }
+
+  const handleKernelDownload = async () => {
+    setKernelBusy(true)
+    setKernelPct(0)
+    setKernelStatus('Starting…')
+    setKernelMsg('')
+    const unsub = window.nunu?.onKernelProgress?.((evt) => {
+      setKernelPct(evt.percent)
+      setKernelStatus(evt.status)
+      if (evt.percent >= 100) {
+        unsub?.()
+        setKernelBusy(false)
+        window.nunu?.kernelInfo?.().then((r) => {
+          if (r) { setKernelInstalled(r.installed); setKernelVersion(r.version) }
+        })
+        setKernelUpdateAvailable(false)
+        setKernelMsg('Custom kernel installed — restart the VM to apply.')
+      }
+    })
+    const result = await window.nunu?.kernelDownload?.()
+    if (result && !result.success) {
+      setKernelMsg(result.error ?? 'Download failed')
+      setKernelBusy(false)
+      unsub?.()
+    }
+  }
+
+  const handleKernelCheckUpdate = async () => {
+    setKernelMsg('')
+    const result = await window.nunu?.kernelCheckUpdate?.()
+    if (!result) return
+    if (result.error) { setKernelMsg(result.error); return }
+    setKernelLatestVersion(result.latestVersion)
+    if (result.hasUpdate) {
+      setKernelUpdateAvailable(true)
+      setKernelMsg(`Update available: ${kernelVersion ?? 'none'} → ${result.latestVersion}`)
+    } else {
+      setKernelMsg('Kernel is up to date.')
+    }
+  }
+
+  const handleKernelRemove = async () => {
+    if (!confirm('Remove custom kernel? The stock Google kernel will be used on next boot.')) return
+    await window.nunu?.kernelRemove?.()
+    setKernelInstalled(false)
+    setKernelVersion(null)
+    setKernelUpdateAvailable(false)
+    setKernelMsg('Custom kernel removed.')
   }
 
   const handleEngineCheckUpdate = async () => {
@@ -608,6 +670,68 @@ export function Settings() {
                 <div className="px-5 pb-4">
                   <p className={`text-xs ${ksuMsg.includes('installed') ? 'text-[#16A34A]' : 'text-red-400'}`}>
                     {ksuMsg}
+                  </p>
+                </div>
+              )}
+
+              {/* Custom kernel — download KernelSU + SUSFS vmlinuz_full from nunu-kernel */}
+              {isMac && !kernelBusy && (
+                <Row
+                  label="Custom Kernel"
+                  hint={
+                    kernelInstalled
+                      ? `Installed: ${kernelVersion ?? 'unknown'} · KernelSU + SUSFS`
+                      : 'Download KernelSU + SUSFS kernel (replaces stock on next boot)'
+                  }
+                >
+                  <div className="flex gap-2">
+                    {kernelInstalled && (
+                      <button
+                        onClick={handleKernelCheckUpdate}
+                        className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white/70 border border-white/10 focus:outline-none hover:border-white/20"
+                      >
+                        {kernelUpdateAvailable ? `Update → ${kernelLatestVersion}` : 'Check Update'}
+                      </button>
+                    )}
+                    {kernelInstalled && !kernelUpdateAvailable && (
+                      <button
+                        onClick={handleKernelRemove}
+                        className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white/50 border border-white/10 focus:outline-none hover:border-red-500/40 hover:text-red-400"
+                      >
+                        Remove
+                      </button>
+                    )}
+                    {(!kernelInstalled || kernelUpdateAvailable) && (
+                      <button
+                        onClick={handleKernelDownload}
+                        className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white focus:outline-none"
+                        style={{ background: 'linear-gradient(135deg, #7C3AED, #4F46E5)' }}
+                      >
+                        {kernelInstalled ? 'Update Kernel' : 'Download Kernel'}
+                      </button>
+                    )}
+                  </div>
+                </Row>
+              )}
+              {kernelBusy && (
+                <div className="px-5 py-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium text-white">Downloading kernel…</p>
+                    <span className="text-white/40 text-xs">{kernelPct}%</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-2">
+                    <div
+                      className="h-full rounded-full transition-all duration-300"
+                      style={{ width: `${kernelPct}%`, background: 'linear-gradient(90deg, #7C3AED, #4F46E5)' }}
+                    />
+                  </div>
+                  <p className="text-white/40 text-xs">{kernelStatus}</p>
+                </div>
+              )}
+              {kernelMsg && (
+                <div className="px-5 pb-4">
+                  <p className={`text-xs ${kernelMsg.includes('installed') || kernelMsg.includes('up to date') ? 'text-[#16A34A]' : kernelMsg.includes('removed') ? 'text-white/40' : 'text-red-400'}`}>
+                    {kernelMsg}
                   </p>
                 </div>
               )}

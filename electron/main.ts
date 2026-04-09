@@ -627,12 +627,16 @@ function findCuttlefishImages(): CuttlefishImages | null {
     join(home, '.nunu', 'cuttlefish'),
   ].filter(Boolean) as string[]
 
+  // Prefer the custom nunu-kernel build (KernelSU + SUSFS) if downloaded.
+  // Falls back to the stock Google Cuttlefish kernel.
+  const customKernel = join(home, '.nunu', 'kernel', 'vmlinuz_full')
+
   for (const dir of candidates) {
-    const kernel = join(dir, 'vmlinuz_full')
-    if (!existsSync(kernel)) continue
-    // Always use the original initramfs — Magisk patching is not supported on Android 16.
-    // GApps are installed via `adb root` + /system/priv-app/ push, no initramfs patch needed.
-    const initrd = join(dir, 'initramfs_fixed.img')
+    const stockKernel = join(dir, 'vmlinuz_full')
+    if (!existsSync(stockKernel)) continue
+
+    const kernel = existsSync(customKernel) ? customKernel : stockKernel
+    const initrd  = join(dir, 'initramfs_fixed.img')
     return {
       kernel,
       initrd,
@@ -1055,6 +1059,46 @@ ipcMain.handle('kernelsu:install', async () => {
   } catch (err: unknown) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
+})
+
+// ── nunu-kernel IPC ───────────────────────────────────────────────────────────
+
+// Returns info about the currently installed custom kernel (if any).
+ipcMain.handle('kernel:info', async () => {
+  const { KernelDownloadService } = await import('./services/KernelDownloadService')
+  return new KernelDownloadService().installedInfo()
+})
+
+// Checks if a newer kernel release is available on wisnuub/nunu-kernel.
+ipcMain.handle('kernel:check-update', async () => {
+  const { KernelDownloadService } = await import('./services/KernelDownloadService')
+  try {
+    return await new KernelDownloadService().checkUpdate()
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+// Downloads the latest vmlinuz_full from wisnuub/nunu-kernel releases.
+// Saved to ~/.nunu/kernel/vmlinuz_full — auto-used on next VM start.
+ipcMain.handle('kernel:download', async () => {
+  if (!mainWindow) return { success: false, error: 'No window' }
+  const { KernelDownloadService } = await import('./services/KernelDownloadService')
+  const svc = new KernelDownloadService()
+  try {
+    return await svc.download((pct, status) => {
+      mainWindow?.webContents.send('kernel:progress', { percent: pct, status })
+    })
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+// Removes the custom kernel — stock Google kernel will be used on next boot.
+ipcMain.handle('kernel:remove', async () => {
+  const { KernelDownloadService } = await import('./services/KernelDownloadService')
+  new KernelDownloadService().remove()
+  return { success: true }
 })
 
 ipcMain.handle('vm:launch', async (_event, options: {
