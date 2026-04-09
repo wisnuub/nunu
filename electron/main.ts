@@ -1037,6 +1037,26 @@ ipcMain.handle('gapps:patch-initrd', async () => {
   return { success: false, error: 'Initramfs patching is not required for Cuttlefish — use Install GApps directly.' }
 })
 
+// ── KernelSU IPC ─────────────────────────────────────────────────────────────
+
+// Install KernelSU via LKM — pushes android16-6.12_kernelsu.ko + Manager APK.
+// VM must be running and fully booted.
+ipcMain.handle('kernelsu:install', async () => {
+  if (!mainWindow) return { success: false, error: 'No window' }
+  if (!vmAdbAddress) return { success: false, error: 'VM is not running. Start Android first.' }
+
+  const { KernelSUService } = await import('./services/KernelSUService')
+  const svc = new KernelSUService()
+  try {
+    const result = await svc.install(vmAdbAddress, (pct, status) => {
+      mainWindow?.webContents.send('kernelsu:progress', { percent: pct, status })
+    })
+    return result
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
 ipcMain.handle('vm:launch', async (_event, options: {
   packageId: string
   gameName: string

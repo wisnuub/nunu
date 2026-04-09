@@ -98,7 +98,7 @@ contextBridge.exposeInMainWorld('nunu', {
   pushBootAnimation: (zipPath: string) => ipcRenderer.invoke('android:push-bootanimation', zipPath),
   pickBootAnimation: () => ipcRenderer.invoke('android:pick-bootanimation'),
 
-  // GApps (Magisk-based: patch initramfs then provision via ADB)
+  // GApps — install via adb root (no initramfs patching needed)
   patchInitrdForGApps: () => ipcRenderer.invoke('gapps:patch-initrd'),
   installGApps: () => ipcRenderer.invoke('gapps:install'),
   onGAppsProgress: (callback: (event: { percent: number; status: string }) => void) => {
@@ -106,6 +106,15 @@ contextBridge.exposeInMainWorld('nunu', {
       callback(data)
     ipcRenderer.on('gapps:progress', handler)
     return () => ipcRenderer.removeListener('gapps:progress', handler)
+  },
+
+  // KernelSU — install via LKM (android16-6.12 prebuilt)
+  installKernelSU: () => ipcRenderer.invoke('kernelsu:install'),
+  onKernelSUProgress: (callback: (event: { percent: number; status: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { percent: number; status: string }) =>
+      callback(data)
+    ipcRenderer.on('kernelsu:progress', handler)
+    return () => ipcRenderer.removeListener('kernelsu:progress', handler)
   },
 
   // Config (~/.nunu/config.json)

@@ -125,6 +125,12 @@ export function Settings() {
   const [gappsStatus, setGappsStatus] = useState('')
   const [gappsMsg, setGappsMsg] = useState('')
 
+  // KernelSU install state
+  const [ksuBusy, setKsuBusy] = useState(false)
+  const [ksuPct, setKsuPct] = useState(0)
+  const [ksuStatus, setKsuStatus] = useState('')
+  const [ksuMsg, setKsuMsg] = useState('')
+
   // Engine (nunu-apple) state
   const [engineInstalled, setEngineInstalled] = useState<boolean | null>(null)
   const [engineVersion, setEngineVersion] = useState<string | null>(null)
@@ -234,6 +240,28 @@ export function Settings() {
     if (result && !result.success) {
       setGappsMsg(result.error ?? 'Install failed')
       setGappsBusy(false)
+      unsub?.()
+    }
+  }
+
+  const handleInstallKernelSU = async () => {
+    setKsuBusy(true)
+    setKsuPct(0)
+    setKsuStatus('Starting…')
+    setKsuMsg('')
+    const unsub = window.nunu?.onKernelSUProgress?.((evt) => {
+      setKsuPct(evt.percent)
+      setKsuStatus(evt.status)
+      if (evt.percent >= 100) {
+        unsub?.()
+        setKsuBusy(false)
+        setKsuMsg('KernelSU installed — Android is rebooting, wait ~30s then Start again.')
+      }
+    })
+    const result = await window.nunu?.installKernelSU?.()
+    if (result && !result.success) {
+      setKsuMsg(result.error ?? 'Install failed')
+      setKsuBusy(false)
       unsub?.()
     }
   }
@@ -541,6 +569,45 @@ export function Settings() {
                 <div className="px-5 pb-4">
                   <p className={`text-xs ${gappsMsg.includes('installed') ? 'text-[#16A34A]' : 'text-red-400'}`}>
                     {gappsMsg}
+                  </p>
+                </div>
+              )}
+
+              {/* KernelSU — LKM install */}
+              {isMac && !ksuBusy && (
+                <Row
+                  label="KernelSU"
+                  hint={vmRunning ? 'Install KernelSU root manager (LKM)' : 'Start Android first'}
+                >
+                  <button
+                    onClick={handleInstallKernelSU}
+                    disabled={!vmRunning}
+                    className="px-3 py-1.5 rounded-[6px] text-xs font-semibold text-white focus:outline-none disabled:opacity-40"
+                    style={{ background: 'linear-gradient(135deg, #16A34A, #15803D)' }}
+                  >
+                    Install KernelSU
+                  </button>
+                </Row>
+              )}
+              {ksuBusy && (
+                <div className="px-5 py-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium text-white">Installing KernelSU…</p>
+                    <span className="text-white/40 text-xs">{ksuPct}%</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-2">
+                    <div
+                      className="h-full rounded-full transition-all duration-300"
+                      style={{ width: `${ksuPct}%`, background: 'linear-gradient(90deg, #16A34A, #15803D)' }}
+                    />
+                  </div>
+                  <p className="text-white/40 text-xs">{ksuStatus}</p>
+                </div>
+              )}
+              {ksuMsg && (
+                <div className="px-5 pb-4">
+                  <p className={`text-xs ${ksuMsg.includes('installed') ? 'text-[#16A34A]' : 'text-red-400'}`}>
+                    {ksuMsg}
                   </p>
                 </div>
               )}
