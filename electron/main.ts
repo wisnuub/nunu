@@ -11,7 +11,6 @@ import { SafetyNetService } from './services/SafetyNetService'
 import { startGoogleSignIn } from './services/GoogleAuthService'
 import { NunuAppleEngineService } from './services/NunuAppleEngineService'
 import { GAppsService } from './services/GAppsService'
-import { MagiskService } from './services/MagiskService'
 
 // Handle Windows NSIS squirrel events
 if (process.platform === 'win32') {
@@ -628,14 +627,12 @@ function findCuttlefishImages(): CuttlefishImages | null {
     join(home, '.nunu', 'cuttlefish'),
   ].filter(Boolean) as string[]
 
-  const magiskSvc = new MagiskService()
   for (const dir of candidates) {
     const kernel = join(dir, 'vmlinuz_full')
     if (!existsSync(kernel)) continue
-    const originalInitrd = join(dir, 'initramfs_fixed.img')
-    const initrd = magiskSvc.isPatchedInitrdPresent(originalInitrd)
-      ? magiskSvc.patchedInitrdFor(originalInitrd)
-      : originalInitrd
+    // Always use the original initramfs — Magisk patching is not supported on Android 16.
+    // GApps are installed via `adb root` + /system/priv-app/ push, no initramfs patch needed.
+    const initrd = join(dir, 'initramfs_fixed.img')
     return {
       kernel,
       initrd,
