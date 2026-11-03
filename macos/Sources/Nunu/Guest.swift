@@ -88,6 +88,8 @@ extension Engine {
             // Background Wi-Fi/BLE scanning is pointless in a VM
             "settings put global wifi_scan_always_enabled 0",
             "settings put global ble_scan_always_enabled 0",
+            // Typing comes from the Mac keyboard; don't cover half the screen with Gboard.
+            "settings put secure show_ime_with_hard_keyboard 0",
             "settings put system peak_refresh_rate \(s.refreshRate).0",
             "settings put system min_refresh_rate \(s.refreshRate).0",
         ]

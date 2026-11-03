@@ -16,10 +16,14 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     private let cover = NSVisualEffectView()
     private let coverLabel = NSTextField(labelWithString: "Starting Android…")
     private let spinner = NSProgressIndicator()
-    private let fpsLabel = NSTextField(labelWithString: "")
     private let library = LibraryModel()
     private let tabs = TabsModel()
-    private lazy var tabHost = NSHostingView(rootView: TabStripView(model: tabs))
+    private let barHeight = TabStripView.titleBarHeight
+    private lazy var tabHost: NSHostingView<TabStripView> = {
+        let host = NSHostingView(rootView: TabStripView(model: tabs, height: barHeight))
+        host.safeAreaRegions = []
+        return host
+    }()
     private var fpsTimer: Timer?
     private lazy var homeView = NSHostingView(rootView: HomeView(model: library))
     private(set) var homeVisible = false
@@ -82,7 +86,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         root.layer?.backgroundColor = NSColor.black.cgColor
 
         homeView.isHidden = true
-        for v in [tabHost, frameView, overlay, homeView, toolbar, cover, fpsLabel] as [NSView] {
+        for v in [tabHost, frameView, overlay, homeView, toolbar, cover] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(v)
         }
@@ -141,15 +145,11 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         coverStack.translatesAutoresizingMaskIntoConstraints = false
         cover.addSubview(coverStack)
 
-        fpsLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
-        fpsLabel.textColor = .systemGreen
-        fpsLabel.isHidden = !settings.showFPS
-
         NSLayoutConstraint.activate([
             tabHost.topAnchor.constraint(equalTo: root.topAnchor),
             tabHost.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             tabHost.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            tabHost.heightAnchor.constraint(equalToConstant: TabStripView.height),
+            tabHost.heightAnchor.constraint(equalToConstant: barHeight),
 
             toolbar.topAnchor.constraint(equalTo: tabHost.bottomAnchor),
             toolbar.bottomAnchor.constraint(equalTo: root.bottomAnchor),
@@ -178,8 +178,6 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
             coverStack.centerXAnchor.constraint(equalTo: cover.centerXAnchor),
             coverStack.centerYAnchor.constraint(equalTo: cover.centerYAnchor),
 
-            fpsLabel.topAnchor.constraint(equalTo: frameView.topAnchor, constant: 6),
-            fpsLabel.leadingAnchor.constraint(equalTo: frameView.leadingAnchor, constant: 8),
         ])
         window?.contentView = root
         window?.initialFirstResponder = frameView
@@ -192,14 +190,14 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         let visible = screen.visibleFrame.size
         let device = CGSize(width: settings.width, height: settings.height)
         let maxW = visible.width * 0.85 - Self.toolbarWidth
-        let maxH = visible.height * 0.85 - TabStripView.height
+        let maxH = visible.height * 0.85 - barHeight
         let scale = min(1, maxW / device.width, maxH / device.height)
         let content = CGSize(width: (device.width * scale).rounded() + Self.toolbarWidth,
-                             height: (device.height * scale).rounded() + TabStripView.height)
+                             height: (device.height * scale).rounded() + barHeight)
         var frame = window.frameRect(forContentRect: CGRect(origin: window.frame.origin, size: content))
         frame.origin.y += window.frame.height - frame.height
         window.setFrame(frame, display: true, animate: animate)
-        window.contentMinSize = CGSize(width: 480 + Self.toolbarWidth, height: 270 + TabStripView.height)
+        window.contentMinSize = CGSize(width: 480 + Self.toolbarWidth, height: 270 + barHeight)
     }
 
     /// Keep the picture's aspect ratio while dragging the window edge.
@@ -208,7 +206,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         let content = sender.contentRect(forFrameRect: CGRect(origin: .zero, size: frameSize)).size
         let pictureW = max(content.width - Self.toolbarWidth, 100)
         let h = (pictureW * size.height / size.width).rounded()
-        let fitted = CGSize(width: pictureW + Self.toolbarWidth, height: h + TabStripView.height)
+        let fitted = CGSize(width: pictureW + Self.toolbarWidth, height: h + barHeight)
         return sender.frameRect(forContentRect: CGRect(origin: .zero, size: fitted)).size
     }
 
@@ -261,8 +259,9 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 let fps = self.stats.fps()
-                self.fpsLabel.stringValue = fps == 0 ? "idle" : "\(fps) fps"
-                self.fpsLabel.textColor = fps == 0 ? .secondaryLabelColor : .systemGreen
+                // Shown in the tab strip so it never covers Android's status bar.
+                let text = self.settings.showFPS && !self.homeVisible ? (fps == 0 ? "idle" : "\(fps) fps") : ""
+                if self.tabs.fps != text { self.tabs.fps = text }
                 ticks += 1
                 if FrameStats.logToStderr, ticks % 4 == 0, fps > 0 {
                     FileHandle.standardError.write(Data("nunu: \(fps) fps \(Int(self.renderer.frameSize.width))x\(Int(self.renderer.frameSize.height))\n".utf8))
@@ -327,7 +326,18 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     /// Swap key maps per app, and cover Android's launcher with nunu Home.
     private func foregroundChanged(_ pkg: String) {
         FileHandle.standardError.write(Data("nunu: foreground \(pkg)\n".utf8))
-        if transientPackages.contains(pkg) { return }  // dialog over the current app
+        if transientPackages.contains(pkg) {
+            // A dialog or sign-in screen: show it (never leave it behind Home), keep the
+            // game's controls, and credit the tab of the app whose task it's in.
+            setHome(visible: false)
+            if tabs.active == nil || tabs.active == "" {
+                Task {
+                    let owner = await engine.recentTasks().first?.pkg
+                    if let owner, !transientPackages.contains(owner) { tabs.activate(owner) } else { tabs.showOther() }
+                }
+            }
+            return
+        }
         if pkg == androidLauncher {
             tabs.showHome()
             setHome(visible: true)
@@ -435,7 +445,6 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     func apply(settings: DeviceSettings) {
         let resized = settings.width != self.settings.width || settings.height != self.settings.height
         self.settings = settings
-        fpsLabel.isHidden = !settings.showFPS
         overlay.showHints = settings.showHints
         keyMapper.sensitivityScale = settings.aimSensitivity
         if resized { sizeWindow(animate: true) }

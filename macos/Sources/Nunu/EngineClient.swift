@@ -100,8 +100,15 @@ final class EngineClient: @unchecked Sendable {
 
     func key(macKeyCode: UInt16, down: Bool) {
         var e = Android_Emulation_Control_InputEvent()
-        e.keyEvent.codeType = .mac
-        e.keyEvent.keyCode = Int32(macKeyCode)
+        if macKeyCode == 0 {
+            // kVK_ANSI_A is 0, which protobuf treats as "no key code" and the engine
+            // drops. Send A as Linux KEY_A instead.
+            e.keyEvent.codeType = .evdev
+            e.keyEvent.keyCode = 30
+        } else {
+            e.keyEvent.codeType = .mac
+            e.keyEvent.keyCode = Int32(macKeyCode)
+        }
         e.keyEvent.eventType = down ? .keydown : .keyup
         send(e)
     }

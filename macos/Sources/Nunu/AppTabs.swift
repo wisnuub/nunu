@@ -38,6 +38,8 @@ final class TabsModel: ObservableObject {
     @Published var active: String?
     /// Right-aligned hint, e.g. while mouse-look holds the cursor.
     @Published var status = ""
+    /// Frame-rate readout, empty when the counter is off.
+    @Published var fps = ""
 
     var onHome: (() -> Void)?
     var onSelect: ((String) -> Void)?
@@ -52,6 +54,9 @@ final class TabsModel: ObservableObject {
     }
 
     func showHome() { active = nil }
+
+    /// Something without a tab is in front (e.g. a sign-in screen we can't attribute).
+    func showOther() { active = "" }
 
     /// Seed tabs from Android's running tasks (after a launch or re-attach).
     func sync(running: [String]) {
@@ -93,19 +98,26 @@ final class TabsModel: ObservableObject {
 
 struct TabStripView: View {
     @ObservedObject var model: TabsModel
+    /// Matches the system title bar so tabs line up with the traffic lights.
+    let height: CGFloat
     /// Room for the traffic-light buttons.
-    var leadingInset: CGFloat = 78
+    var leadingInset: CGFloat = 80
 
-    static let height: CGFloat = 38
+    /// Height of a standard title bar on this macOS version.
+    static var titleBarHeight: CGFloat {
+        let content = NSRect(x: 0, y: 0, width: 200, height: 200)
+        let frame = NSWindow.frameRect(forContentRect: content, styleMask: [.titled])
+        return max(28, frame.height - content.height)
+    }
 
     var body: some View {
         HStack(spacing: 4) {
             dragArea.frame(width: leadingInset)
             TabButton(title: "Home", symbol: "house.fill", icon: nil, active: model.active == nil,
-                      onSelect: { model.onHome?() }, onClose: nil)
+                      height: height - 6, onSelect: { model.onHome?() }, onClose: nil)
             ForEach(model.tabs) { tab in
                 TabButton(title: tab.title, symbol: tab.symbol, icon: tab.icon, active: model.active == tab.id,
-                          onSelect: { model.onSelect?(tab.id) }, onClose: { model.close([tab.id]) })
+                          height: height - 6, onSelect: { model.onSelect?(tab.id) }, onClose: { model.close([tab.id]) })
                     .contextMenu {
                         Button("Close \(tab.title)") { model.close([tab.id]) }
                         Button("Close Other Apps") { model.close(model.tabs.map(\.id).filter { $0 != tab.id }) }
@@ -116,11 +128,21 @@ struct TabStripView: View {
             if !model.status.isEmpty {
                 Text(model.status)
                     .font(.system(size: 11, weight: .medium)).foregroundStyle(.orange)
+                    .padding(.trailing, 8)
+            }
+            if !model.fps.isEmpty {
+                Text(model.fps)
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(.black, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
                     .padding(.trailing, 12)
             }
         }
-        .frame(height: Self.height)
+        .frame(height: height)
         .background(Color(white: 0.105))
+        // The strip *is* the title bar; without this SwiftUI pushes it below it.
+        .ignoresSafeArea()
     }
 
     /// Empty title-bar space still moves the window.
@@ -137,6 +159,7 @@ private struct TabButton: View {
     let symbol: String?
     let icon: NSImage?
     let active: Bool
+    let height: CGFloat
     let onSelect: () -> Void
     let onClose: (() -> Void)?
     @State private var hover = false
@@ -151,8 +174,10 @@ private struct TabButton: View {
                     Image(systemName: symbol ?? "app.fill").font(.system(size: 12, weight: .semibold))
                 }
             }
-            .frame(width: 18, height: 18)
+            .frame(width: 16, height: 16)
             Text(title).font(.system(size: 12, weight: active ? .semibold : .regular)).lineLimit(1)
+                .frame(maxWidth: 150, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
             if let onClose {
                 Button(action: onClose) {
                     Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
@@ -166,8 +191,7 @@ private struct TabButton: View {
         }
         .foregroundStyle(.white.opacity(active ? 1 : 0.7))
         .padding(.leading, 10).padding(.trailing, onClose == nil ? 12 : 6)
-        .frame(height: 28)
-        .frame(maxWidth: 210)
+        .frame(height: height)
         .background(active ? Color.white.opacity(0.14) : hover ? Color.white.opacity(0.06) : .clear,
                     in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .contentShape(Rectangle())

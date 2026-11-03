@@ -54,10 +54,12 @@ final class Engine {
         phase = .launching
         Paths.ensure(Paths.logs, Paths.run)
 
-        if let saved = Self.loadState(), Self.isEngineProcess(saved.pid) {
-            pid = saved.pid
-            grpcPort = saved.grpcPort
-            consolePort = saved.consolePort
+        if let running = Self.loadState().flatMap({ Self.isEngineProcess($0.pid) ? $0 : nil })
+            ?? Self.discoverRunningEngine() {
+            pid = running.pid
+            grpcPort = running.grpcPort
+            consolePort = running.consolePort
+            Self.saveState(running)
             log("re-attaching to running engine pid \(pid)")
         } else {
             do {
@@ -116,7 +118,8 @@ final class Engine {
         p.standardError = logHandle
         p.terminationHandler = { [weak self] proc in
             let status = proc.terminationStatus
-            Task { @MainActor in self?.engineExited(status: status) }
+            let exited = proc.processIdentifier
+            Task { @MainActor in self?.engineExited(pid: exited, status: status) }
         }
         try p.run()
         process = p
@@ -225,8 +228,10 @@ final class Engine {
         return !Self.isAlive(pid)
     }
 
-    private func engineExited(status: Int32) {
-        guard phase != .stopping, phase != .stopped else { return }
+    /// Only the engine we're running right now counts: a restart's previous engine
+    /// (or its watchdog) reporting late must not take the new one down.
+    private func engineExited(pid exited: pid_t, status: Int32) {
+        guard exited == pid, phase != .stopping, phase != .stopped else { return }
         teardown()
         phase = .failed("Android stopped unexpectedly (exit \(status)). See ~/.nunu/logs/engine.log")
     }
@@ -236,10 +241,11 @@ final class Engine {
         watchdog?.cancel()
         let watched = pid
         watchdog = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(2))
+            while true {
+                // A cancelled sleep throws: stop here instead of checking a dead pid.
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
                 if !Self.isAlive(watched) {
-                    self?.engineExited(status: -1)
+                    self?.engineExited(pid: watched, status: -1)
                     return
                 }
             }
@@ -356,6 +362,28 @@ final class Engine {
         guard proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 else { return false }
         let path = String(cString: buf)
         return path.hasPrefix(Paths.sdk.path) && path.contains("qemu-system")
+    }
+
+    /// Finds nunu's engine through the discovery file it writes on start, for when
+    /// nunu lost its own state file (e.g. crashed mid-restart).
+    private static func discoverRunningEngine() -> State? {
+        let dir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/TemporaryItems/avd/running")
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        for name in files where name.hasPrefix("pid_") && name.hasSuffix(".ini") {
+            guard let pid = pid_t(name.dropFirst(4).dropLast(4)), isEngineProcess(pid),
+                  let text = try? String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8) else { continue }
+            var fields: [String: String] = [:]
+            for line in text.split(whereSeparator: \.isNewline) {
+                let kv = line.split(separator: "=", maxSplits: 1).map(String.init)
+                if kv.count == 2 { fields[kv[0]] = kv[1] }
+            }
+            guard fields["avd.dir"] == Paths.avdDir.path,
+                  let grpc = fields["grpc.port"].flatMap(Int.init),
+                  let console = fields["port.serial"].flatMap(Int.init) else { continue }
+            return State(pid: pid, grpcPort: grpc, consolePort: console)
+        }
+        return nil
     }
 
     private static func loadState() -> State? {

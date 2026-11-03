@@ -143,7 +143,7 @@ struct HomeView: View {
     @ObservedObject var model: LibraryModel
     @State private var confirmUninstall: AppTile?
 
-    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 128), spacing: 18)]
+    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 128), spacing: 18, alignment: .top)]
 
     var body: some View {
         ZStack {
