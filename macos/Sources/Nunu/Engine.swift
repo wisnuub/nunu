@@ -23,6 +23,12 @@ final class Engine {
     private var phaseClock = Date()
     var onPhase: ((Phase) -> Void)?
     var onClientReady: ((EngineClient) -> Void)?
+    /// Fires once adb can reach the guest after each boot/re-attach.
+    var onGuestReady: (() -> Void)?
+
+    /// Settings the running engine was started with (guest tweaks read the live ones).
+    private(set) var settings = DeviceSettings()
+    private var activity: NSObjectProtocol?
 
     private(set) var client: EngineClient?
     private(set) var consolePort = 0
@@ -41,8 +47,9 @@ final class Engine {
 
     // MARK: - Start
 
-    func start(_ settings: DeviceSettings) async {
+    func start(_ settings: DeviceSettings, wipeData: Bool = false) async {
         guard phase == .stopped || phase.isFailed else { return }
+        self.settings = settings
         phaseClock = Date()
         phase = .launching
         Paths.ensure(Paths.logs, Paths.run)
@@ -55,7 +62,7 @@ final class Engine {
         } else {
             do {
                 try AVD.write(settings)
-                try launch()
+                try launch(settings, wipeData: wipeData)
             } catch {
                 phase = .failed("Couldn't start Android: \(error.localizedDescription)")
                 return
@@ -76,7 +83,7 @@ final class Engine {
         await waitForBoot()
     }
 
-    private func launch() throws {
+    private func launch(_ s: DeviceSettings, wipeData: Bool) throws {
         consolePort = Self.freeConsolePort()
         grpcPort = Self.freePort(startingAt: 8580)
         _ = Self.adbSync(["start-server"])
@@ -92,12 +99,18 @@ final class Engine {
             "-qt-hide-window",
             "-grpc", "\(grpcPort)",
             "-port", "\(consolePort)",
-            "-gpu", "host",
+            "-gpu", s.renderer == .metal ? "host" : "swiftshader_indirect",
             "-no-boot-anim",
             "-no-metrics",
             "-crash-report-mode", "disabled",
             "-netfast",
         ]
+        if !s.audio { p.arguments! += ["-no-audio"] }
+        if !s.quickBoot { p.arguments! += ["-no-snapshot"] }
+        if !s.vulkan { p.arguments! += ["-feature", "-Vulkan"] }
+        if wipeData { p.arguments! += ["-wipe-data"] }
+        // vCPU threads inherit this, which keeps them on the performance cores.
+        p.qualityOfService = s.highPriority ? .userInteractive : .default
         p.environment = Self.environment
         p.standardOutput = logHandle
         p.standardError = logHandle
@@ -117,6 +130,11 @@ final class Engine {
         while Date() < deadline, phase == .booting {
             if let status = try? await client?.status(), status.booted {
                 phase = .ready
+                if settings.highPriority {
+                    // Keep App Nap and timer coalescing away from nunu while Android runs.
+                    activity = ProcessInfo.processInfo.beginActivity(
+                        options: [.userInitiated, .latencyCritical], reason: "Running Android")
+                }
                 await prepareGuest()
                 return
             }
@@ -134,10 +152,42 @@ final class Engine {
             if devices.contains("\(serial)\tdevice") { break }
             try? await Task.sleep(for: .milliseconds(500))
         }
-        await shell("settings put system screen_off_timeout 2147483647")
-        await shell("svc power stayon true")
-        await shell("settings put global stay_on_while_plugged_in 7")
+        await applyTweaks(settings)
+        onGuestReady?()
     }
+
+    /// Live settings (debloat, animations, game mode) take effect without a reboot.
+    func updateLive(_ s: DeviceSettings) async {
+        let device = self.settings
+        var merged = s
+        // Keep boot-time fields as the engine actually runs them.
+        merged.width = device.width; merged.height = device.height; merged.density = device.density
+        merged.ramMB = device.ramMB; merged.cores = device.cores; merged.refreshRate = device.refreshRate
+        settings = merged
+        guard phase == .ready else { return }
+        await applyTweaks(merged)
+    }
+
+    /// Factory reset: stop, then boot once with -wipe-data (drops the snapshot too).
+    func reset(_ s: DeviceSettings) async {
+        await stop()
+        try? FileManager.default.removeItem(at: Paths.avdDir.appendingPathComponent("snapshots"))
+        await start(s, wipeData: true)
+    }
+
+    /// "37.2.13" style revisions of the installed engine and system image.
+    nonisolated static var versions: (engine: String, image: String) {
+        func rev(_ dir: URL) -> String {
+            let text = (try? String(contentsOf: dir.appendingPathComponent("source.properties"), encoding: .utf8)) ?? ""
+            let line = text.split(whereSeparator: \.isNewline).first { $0.hasPrefix("Pkg.Revision=") }
+            return line.map { String($0.dropFirst("Pkg.Revision=".count)) } ?? "?"
+        }
+        return (rev(Paths.sdk.appendingPathComponent("emulator")),
+                rev(Paths.sdk.appendingPathComponent(AVD.systemImage)))
+    }
+
+    /// Address external tools (Android Studio, scrcpy, adb) can connect to.
+    var adbAddress: String { consolePort == 0 ? "not running" : "127.0.0.1:\(consolePort + 1)" }
 
     // MARK: - Stop
 
@@ -197,6 +247,8 @@ final class Engine {
     }
 
     private func teardown() {
+        if let activity { ProcessInfo.processInfo.endActivity(activity) }
+        activity = nil
         watchdog?.cancel()
         client?.close()
         client = nil

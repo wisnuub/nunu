@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         p.onOpenSettings = { [weak self] in self?.showSettings(nil) }
         engine.onPhase = { [weak p] phase in p?.engineChanged(phase) }
         engine.onClientReady = { [weak p] client in p?.attach(client) }
+        engine.onGuestReady = { [weak p] in p?.guestReady() }
         player = p
         p.showWindow(nil)
         let settings = self.settings
@@ -64,14 +65,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             w.makeKeyAndOrderFront(nil)
             return
         }
-        let running = settings
-        let view = SettingsView(settings: settings, running: running) { [weak self] new, restart in
-            guard let self else { return }
-            self.settings = new
-            self.player?.apply(settings: new)
-            self.settingsWindow?.close()
-            if restart { Task { await self.engine.restart(new) } }
-        }
+        let view = SettingsView(
+            settings: settings,
+            running: engine.settings,
+            adbAddress: engine.adbAddress,
+            onApply: { [weak self] new, restart in
+                guard let self else { return }
+                self.settings = new
+                self.player?.apply(settings: new)
+                self.settingsWindow?.close()
+                Task {
+                    if restart { await self.engine.restart(new) } else { await self.engine.updateLive(new) }
+                }
+            },
+            onCancel: { [weak self] in self?.settingsWindow?.close() },
+            onReset: { [weak self] in
+                guard let self else { return }
+                self.settingsWindow?.close()
+                let s = self.settings
+                Task { await self.engine.reset(s) }
+            },
+            onEditControls: { [weak self] in
+                self?.settingsWindow?.close()
+                self?.player?.toggleControls()
+            }
+        )
         let w = NSWindow(contentViewController: NSHostingController(rootView: view))
         w.title = "nunu Settings"
         w.styleMask = [.titled, .closable]

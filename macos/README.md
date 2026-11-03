@@ -12,6 +12,9 @@ nunu.app (Swift, AppKit + Metal)
 ├── FrameRenderer.swift   shared-memory frames -> Metal texture (no copy)
 ├── FrameView.swift       mouse -> touch, trackpad -> swipe/pinch, keys
 ├── KeyMap.swift          BlueStacks-style controls: keys, D-pad, mouse-look
+├── Home.swift            nunu Home: native game library over Android's launcher
+├── Guest.swift           debloat, per-boot tuning, foreground-app events
+├── SettingsView.swift    Performance / Display / Graphics / Apps / Controls / Advanced
 └── SDKInstaller.swift    first-run download from Google's SDK repository
         │
         ▼
@@ -55,6 +58,25 @@ The gRPC client in `Sources/EmulatorAPI` is generated from `proto/emulator_contr
 (shipped with the engine). Regenerate with `scripts/gen-proto.sh`.
 
 ## Using it
+
+**nunu Home** covers Android's launcher whenever it's in front: your installed games
+(names and icons from their Play Store pages, cached in `~/.nunu/library`), a popular-games
+shelf, and shortcuts to the Play Store and settings. Right-click a game for controls,
+its store page or uninstall.
+
+**Settings** (⌘,):
+
+| Tab | |
+|---|---|
+| Performance | Low / Balanced / High profiles, CPU cores, memory, frame rate (30–120), high-priority engine, Android game mode, lighter animations |
+| Display | Landscape / portrait, resolution presets up to 2560×1440, DPI, FPS counter |
+| Graphics | Metal GPU or software renderer, Vulkan on/off |
+| Apps | Disable preinstalled apps (YouTube, Maps, Gmail, Assistant…); the recommended set is applied on first boot |
+| Controls | Control hints, mouse-look sensitivity |
+| Advanced | Quick boot, sound, storage size, ADB address, versions, logs, reset Android |
+
+Every boot nunu also turns off background Wi-Fi/BLE scanning, keeps the screen awake,
+and launches the engine at user-interactive priority with App Nap off.
 
 | Mac | Android |
 |---|---|

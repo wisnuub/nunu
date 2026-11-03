@@ -1,5 +1,6 @@
 import AppKit
 import EmulatorAPI
+import SwiftUI
 
 /// The one window nunu shows while playing: the Android display, a slim
 /// toolbar on the right, the controls overlay and a boot/status cover.
@@ -16,6 +17,9 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     private let coverLabel = NSTextField(labelWithString: "Starting Android…")
     private let spinner = NSProgressIndicator()
     private let fpsLabel = NSTextField(labelWithString: "")
+    private let library = LibraryModel()
+    private lazy var homeView = NSHostingView(rootView: HomeView(model: library))
+    private(set) var homeVisible = false
 
     private var streamTask: Task<Void, Never>?
     private var focusTask: Task<Void, Never>?
@@ -55,6 +59,9 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
             self?.overlay.needsDisplay = true
         }
         overlay.onEditingChanged = { [weak self] _ in self?.overlay.needsDisplay = true }
+        overlay.showHints = settings.showHints
+        keyMapper.sensitivityScale = settings.aimSensitivity
+        wireLibrary()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -66,7 +73,8 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         root.wantsLayer = true
         root.layer?.backgroundColor = NSColor.black.cgColor
 
-        for v in [frameView, overlay, toolbar, cover, fpsLabel] as [NSView] {
+        homeView.isHidden = true
+        for v in [frameView, overlay, homeView, toolbar, cover, fpsLabel] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(v)
         }
@@ -145,6 +153,11 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
             overlay.bottomAnchor.constraint(equalTo: frameView.bottomAnchor),
             overlay.leadingAnchor.constraint(equalTo: frameView.leadingAnchor),
             overlay.trailingAnchor.constraint(equalTo: frameView.trailingAnchor),
+
+            homeView.topAnchor.constraint(equalTo: frameView.topAnchor),
+            homeView.bottomAnchor.constraint(equalTo: frameView.bottomAnchor),
+            homeView.leadingAnchor.constraint(equalTo: frameView.leadingAnchor),
+            homeView.trailingAnchor.constraint(equalTo: frameView.trailingAnchor),
 
             cover.topAnchor.constraint(equalTo: frameView.topAnchor),
             cover.bottomAnchor.constraint(equalTo: frameView.bottomAnchor),
@@ -238,7 +251,6 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         case .booting: show(status: "Booting Android…", spinning: true)
         case .ready:
             hideCover()
-            startFocusWatcher()
         case .stopping:
             stopStreaming()
             show(status: "Saving Android state so it resumes in seconds next time…", spinning: true)
@@ -276,37 +288,91 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         window?.makeFirstResponder(frameView)
     }
 
-    /// Swap key maps when the foreground app changes.
-    private func startFocusWatcher() {
+    /// adb can reach the guest: follow the foreground app from now on.
+    func guestReady() {
         focusTask?.cancel()
-        focusTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                if self.window?.isKeyWindow == true, !self.overlay.editing {
-                    let out = await self.engine.shell("dumpsys activity activities | grep -m1 topResumedActivity")
-                    if let pkg = Self.package(fromActivityLine: out) {
-                        self.keyMapper.load(package: pkg)
-                        self.overlay.needsDisplay = true
-                    }
-                }
-                try? await Task.sleep(for: .seconds(2))
+        focusTask = engine.watchForeground { [weak self] pkg in self?.foregroundChanged(pkg) }
+        Task {
+            if let pkg = await engine.foregroundPackage() { foregroundChanged(pkg) }
+        }
+    }
+
+    /// Swap key maps per app, and cover Android's launcher with nunu Home.
+    private func foregroundChanged(_ pkg: String) {
+        FileHandle.standardError.write(Data("nunu: foreground \(pkg)\n".utf8))
+        if pkg == androidLauncher {
+            setHome(visible: true)
+        } else {
+            setHome(visible: false)
+            keyMapper.load(package: pkg)
+            overlay.needsDisplay = true
+        }
+    }
+
+    private func setHome(visible: Bool) {
+        guard visible != homeVisible else { return }
+        homeVisible = visible
+        if visible {
+            frameView.releaseInput()
+            if overlay.editing { overlay.setEditing(false) }
+            homeView.isHidden = false
+            window?.makeFirstResponder(homeView)
+            Task { await library.refresh() }
+        } else {
+            homeView.isHidden = true
+            window?.makeFirstResponder(frameView)
+        }
+    }
+
+    private func wireLibrary() {
+        let engine = self.engine
+        library.listApps = { await engine.userApps() }
+        library.onLaunch = { [weak self] pkg in
+            self?.setHome(visible: false)
+            Task {
+                await engine.launchApp(pkg)
+                if engine.settings.gameMode { await engine.shell("cmd game mode performance \(pkg) >/dev/null 2>&1") }
+            }
+        }
+        library.onStorePage = { [weak self] pkg in
+            self?.setHome(visible: false)
+            Task { await engine.openStorePage(pkg) }
+        }
+        library.onPlayStore = { [weak self] in
+            self?.setHome(visible: false)
+            Task { await engine.openPlayStore() }
+        }
+        library.onAndroidSettings = { [weak self] in
+            self?.setHome(visible: false)
+            Task { await engine.openAndroidSettings() }
+        }
+        library.onNunuSettings = { [weak self] in self?.onOpenSettings?() }
+        library.onEditControls = { [weak self] pkg in self?.editControls(for: pkg) }
+        library.onUninstall = { [weak self] pkg in
+            Task {
+                await engine.uninstall(pkg)
+                await self?.library.refresh()
             }
         }
     }
 
-    /// "topResumedActivity=ActivityRecord{1a2b u0 com.foo.bar/.Main t12}" -> "com.foo.bar"
-    nonisolated static func package(fromActivityLine line: String) -> String? {
-        guard let slash = line.firstIndex(of: "/") else { return nil }
-        let head = line[..<slash]
-        guard let space = head.lastIndex(of: " ") else { return nil }
-        let pkg = String(head[head.index(after: space)...])
-        return pkg.isEmpty ? nil : pkg
+    /// Opens the game, then the controls editor on top of it.
+    func editControls(for pkg: String) {
+        setHome(visible: false)
+        Task {
+            await engine.launchApp(pkg)
+            keyMapper.load(package: pkg)
+            try? await Task.sleep(for: .seconds(2))
+            overlay.setEditing(true)
+        }
     }
 
     func apply(settings: DeviceSettings) {
         let resized = settings.width != self.settings.width || settings.height != self.settings.height
         self.settings = settings
         fpsLabel.isHidden = !settings.showFPS
+        overlay.showHints = settings.showHints
+        keyMapper.sensitivityScale = settings.aimSensitivity
         if resized { sizeWindow(animate: true) }
     }
 
@@ -314,22 +380,29 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func noop() {}
     @objc func back() { frameView.client?.press("GoBack") }
-    @objc func home() { frameView.client?.press("GoHome") }
+    @objc func home() {
+        frameView.client?.press("GoHome")
+        setHome(visible: true)
+    }
     @objc func recents() { frameView.client?.press("AppSwitch") }
     @objc func volumeUp() { frameView.client?.press("AudioVolumeUp") }
     @objc func volumeDown() { frameView.client?.press("AudioVolumeDown") }
     @objc func openSettings() { onOpenSettings?() }
 
     @objc func playStore() {
-        Task { await engine.shell("monkey -p com.android.vending -c android.intent.category.LAUNCHER 1") }
+        setHome(visible: false)
+        Task { await engine.openPlayStore() }
     }
 
     @objc func toggleControls() {
+        if homeVisible { return }  // controls belong to a game, not Home
         overlay.setEditing(!overlay.editing)
     }
 
     @objc func toggleHints() {
-        overlay.showHints.toggle()
+        settings.showHints.toggle()
+        settings.save()
+        overlay.showHints = settings.showHints
     }
 
     @objc func screenshot() {

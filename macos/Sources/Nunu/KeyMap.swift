@@ -70,6 +70,8 @@ final class KeyMapper {
     /// Current guest display size in pixels.
     var displaySize: () -> CGSize = { .zero }
     var onAimChanged: ((Bool) -> Void)?
+    /// Global multiplier from Settings, on top of each aim control's own sensitivity.
+    var sensitivityScale = 1.0
 
     private(set) var aiming = false
     private var heldTaps: Set<UUID> = []
@@ -149,7 +151,7 @@ final class KeyMapper {
         guard aiming, let (c, i) = aimControl else { return }
         let size = displaySize()
         let centre = point(c)
-        let sens = CGFloat(c.sensitivity ?? 1)
+        let sens = CGFloat((c.sensitivity ?? 1) * sensitivityScale)
         if !aimDown {
             aimPoint = centre
             touch(c, at: aimPoint, id: touchID(i), down: true)
