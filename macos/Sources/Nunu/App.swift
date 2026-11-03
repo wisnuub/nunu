@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var setupWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private lazy var installer = SDKInstaller()
+    private let rootManager = RootManager()
     private var pendingAPKs: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -83,6 +84,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings: settings,
             running: engine.settings,
             adbAddress: engine.adbAddress,
+            root: rootManager,
+            serial: engine.phase == .ready ? engine.serial : nil,
             onApply: { [weak self] new, restart in
                 guard let self else { return }
                 self.settings = new

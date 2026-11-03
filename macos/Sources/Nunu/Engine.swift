@@ -112,6 +112,13 @@ final class Engine {
         if !s.quickBoot { p.arguments! += ["-no-snapshot"] }
         if !s.vulkan { p.arguments! += ["-feature", "-Vulkan"] }
         if wipeData { p.arguments! += ["-wipe-data"] }
+        // Root boot: swap in the KernelSU + SUSFS kernel. Its boot state differs
+        // from the stock kernel's, so never resume a snapshot taken under the other
+        // one; a cold boot here also lets the profile module re-apply at post-fs-data.
+        if s.rootEnabled, FileManager.default.isReadableFile(atPath: Paths.ksuKernel.path) {
+            p.arguments! += ["-kernel", Paths.ksuKernel.path, "-no-snapshot-load"]
+            log("root boot: using KernelSU kernel at \(Paths.ksuKernel.path)")
+        }
         // vCPU threads inherit this, which keeps them on the performance cores.
         p.qualityOfService = s.highPriority ? .userInteractive : .default
         p.environment = Self.environment

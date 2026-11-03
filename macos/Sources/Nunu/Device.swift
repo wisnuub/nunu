@@ -25,6 +25,10 @@ struct DeviceSettings: Codable, Equatable {
     var dataSizeGB = 8
     var highPriority = true
 
+    // Root (Android restarts to apply: boots the KernelSU kernel instead of stock)
+    var rootEnabled = false
+    var deviceProfile = DeviceProfile.none.id
+
     // Live (applied without a restart)
     var reduceAnimations = true
     var gameMode = true
@@ -62,6 +66,8 @@ struct DeviceSettings: Codable, Equatable {
         aimSensitivity = v(.aimSensitivity, d.aimSensitivity)
         touchID = v(.touchID, d.touchID)
         disabledApps = v(.disabledApps, d.disabledApps)
+        rootEnabled = v(.rootEnabled, d.rootEnabled)
+        deviceProfile = v(.deviceProfile, d.deviceProfile)
     }
 
     /// True when `other` differs in anything that only takes effect on boot.
@@ -71,6 +77,7 @@ struct DeviceSettings: Codable, Equatable {
             || renderer != other.renderer || vulkan != other.vulkan || audio != other.audio
             || quickBoot != other.quickBoot || dataSizeGB != other.dataSizeGB
             || highPriority != other.highPriority
+            || rootEnabled != other.rootEnabled || deviceProfile != other.deviceProfile
     }
 
     var isLandscape: Bool { width >= height }

@@ -8,6 +8,9 @@ struct SettingsView: View {
     @State var settings: DeviceSettings
     let running: DeviceSettings
     let adbAddress: String
+    @ObservedObject var root: RootManager
+    /// adb serial of the running engine, or nil when Android isn't up.
+    let serial: String?
     var onApply: (DeviceSettings, _ restart: Bool) -> Void
     var onCancel: () -> Void
     var onReset: () -> Void
@@ -29,6 +32,7 @@ struct SettingsView: View {
                 graphics.tabItem { Label("Graphics", systemImage: "cpu") }
                 apps.tabItem { Label("Apps", systemImage: "square.grid.2x2") }
                 controls.tabItem { Label("Controls", systemImage: "gamecontroller") }
+                rootTab.tabItem { Label("Root", systemImage: "lock.shield") }
                 advanced.tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
             }
             .padding([.horizontal, .top], 12)
@@ -195,6 +199,90 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var rootBusy: Bool {
+        root.stage == .downloading || root.stage == .installing
+    }
+
+    private var rootTab: some View {
+        Form {
+            Section {
+                Toggle("KernelSU root", isOn: $settings.rootEnabled)
+                    .disabled(!root.kernelReady)
+            } header: {
+                Text("Root")
+            } footer: {
+                Text(root.kernelReady
+                     ? "Boots a KernelSU + SUSFS kernel so apps can get root. SUSFS hides root from detection (Play Integrity, anti-cheat). Turning this off boots the stock kernel, leaving no trace. Changing it restarts Android."
+                     : "Download the KernelSU kernel below first.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Status") {
+                statusRow("KernelSU kernel", ok: root.kernelReady,
+                          okText: "Downloaded", noText: "Not downloaded")
+                statusRow("Manager app", ok: root.managerInstalled == true,
+                          okText: "Installed", noText: root.managerInstalled == nil ? "Checking…" : "Not installed")
+                statusRow("Root active", ok: root.rootActive == true,
+                          okText: "Granted (uid 0)", noText: root.rootActive == nil ? "Checking…" : "Not rooted — enable root and restart")
+            }
+
+            Section {
+                Picker("Device profile", selection: $settings.deviceProfile) {
+                    ForEach(DeviceProfile.all) { Text($0.name).tag($0.id) }
+                }
+                .disabled(!settings.rootEnabled)
+                Button("Apply profile now") {
+                    if let serial { Task { await root.applyProfile(.named(settings.deviceProfile), serial: serial) } }
+                }
+                .disabled(root.rootActive != true || serial == nil || rootBusy)
+            } header: {
+                Text("Device profile")
+            } footer: {
+                Text("Spoofs the build fingerprint to a real phone so root and the emulator stay hidden. Applied as a KernelSU module; takes effect after a restart. Needs root already active.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
+                if rootBusy {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ProgressView(value: root.progress)
+                        Text(root.status).font(.caption).foregroundStyle(.secondary)
+                    }
+                } else {
+                    HStack {
+                        Button(root.kernelReady ? "Re-download kit" : "Download kernel + manager") {
+                            Task { await root.downloadKit() }
+                        }
+                        Button("Install manager") {
+                            if let serial { Task { await root.installManager(serial: serial) } }
+                        }
+                        .disabled(!root.kernelReady || serial == nil)
+                    }
+                    if case .failed(let msg) = root.stage {
+                        Text(msg).font(.caption).foregroundStyle(.red)
+                    } else if !root.status.isEmpty {
+                        Text(root.status).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            } footer: {
+                Text("The kernel comes from the nunu-kernel build; the manager is KernelSU-Next. Grant or deny each app's root from the manager app inside Android.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .task {
+            if let serial { await root.refreshStatus(serial: serial) }
+        }
+    }
+
+    private func statusRow(_ label: String, ok: Bool, okText: String, noText: String) -> some View {
+        LabeledContent(label) {
+            Label(ok ? okText : noText, systemImage: ok ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(ok ? .green : .secondary)
+                .labelStyle(.titleAndIcon)
+        }
     }
 
     private var advanced: some View {
