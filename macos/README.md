@@ -13,6 +13,7 @@ nunu.app (Swift, AppKit + Metal)
 ├── FrameView.swift       mouse -> touch, trackpad -> swipe/pinch, keys
 ├── KeyMap.swift          BlueStacks-style controls: keys, D-pad, mouse-look
 ├── Home.swift            nunu Home: native game library over Android's launcher
+├── AppTabs.swift         title-bar tabs for open apps (switch, close)
 ├── Guest.swift           debloat, per-boot tuning, foreground-app events
 ├── SettingsView.swift    Performance / Display / Graphics / Apps / Controls / Advanced
 └── SDKInstaller.swift    first-run download from Google's SDK repository
@@ -52,7 +53,8 @@ scripts/build-app.sh                     # build/nunu.app
 scripts/build-app.sh --dmg               # build/nunu-<version>-arm64.dmg
 ```
 
-`NUNU_LOG_FPS=1` prints the delivered frame rate once a second.
+`NUNU_LOG_FPS=1` prints the delivered frame rate once a second. The engine only sends a
+frame when the picture changes, so a still screen reads "idle", not a frame rate.
 
 The gRPC client in `Sources/EmulatorAPI` is generated from `proto/emulator_controller.proto`
 (shipped with the engine). Regenerate with `scripts/gen-proto.sh`.
@@ -64,6 +66,11 @@ The gRPC client in `Sources/EmulatorAPI` is generated from `proto/emulator_contr
 shelf, and shortcuts to the Play Store and settings. Right-click a game for controls,
 its store page or uninstall.
 
+**App tabs** in the title bar work like BlueStacks/MuMu: Home plus one tab per open app.
+Click to switch, ✕ or ⌘W closes the app (its task and process), right-click for Close
+Others / Close All, ⌃Tab cycles. Android's Recents screen is replaced by the tabs.
+Permission prompts and Google sign-in never open their own tab.
+
 **Settings** (⌘,):
 
 | Tab | |
@@ -71,7 +78,7 @@ its store page or uninstall.
 | Performance | Low / Balanced / High profiles, CPU cores, memory, frame rate (30–120), high-priority engine, Android game mode, lighter animations |
 | Display | Landscape / portrait, resolution presets up to 2560×1440, DPI, FPS counter |
 | Graphics | Metal GPU or software renderer, Vulkan on/off |
-| Apps | Disable preinstalled apps (YouTube, Maps, Gmail, Assistant…); the recommended set is applied on first boot |
+| Apps | Disable preinstalled apps: everyday ones first (Gmail, Photos, YouTube, Calendar…), system extras under Show all; the recommended set is applied on first boot |
 | Controls | Control hints, mouse-look sensitivity |
 | Advanced | Quick boot, sound, storage size, ADB address, versions, logs, reset Android |
 
@@ -84,7 +91,8 @@ and launches the engine at user-interactive priority with App Nap off.
 | Trackpad scroll, mouse wheel | Finger swipe |
 | Pinch | Two-finger pinch |
 | Keyboard | Keyboard (⌘ shortcuts stay with macOS) |
-| ⌘[ · ⇧⌘H · ⇧⌘R | Back · Home · Recent apps |
+| ⌘[ · ⇧⌘H | Back · Home |
+| ⌃Tab · ⌘W | Next app tab · Close app |
 | ⌘K | Edit game controls |
 | ⌘S | Screenshot to ~/Pictures/nunu |
 

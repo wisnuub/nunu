@@ -7,21 +7,23 @@ enum Debloat {
         let id: String
         let name: String
         let recommended: Bool
+        /// Everyday apps people recognise; the rest sit behind "Show all".
+        var common = false
     }
 
     static let catalog: [App] = [
-        App(id: "com.google.android.youtube", name: "YouTube", recommended: true),
-        App(id: "com.google.android.apps.youtube.music", name: "YouTube Music", recommended: true),
-        App(id: "com.google.android.apps.maps", name: "Google Maps", recommended: true),
-        App(id: "com.google.android.apps.docs", name: "Google Drive", recommended: true),
-        App(id: "com.google.android.apps.photos", name: "Google Photos", recommended: true),
-        App(id: "com.google.android.gm", name: "Gmail", recommended: true),
-        App(id: "com.google.android.calendar", name: "Calendar", recommended: true),
-        App(id: "com.google.android.apps.messaging", name: "Messages", recommended: true),
-        App(id: "com.google.android.dialer", name: "Phone", recommended: true),
-        App(id: "com.google.android.contacts", name: "Contacts", recommended: true),
-        App(id: "com.google.android.deskclock", name: "Clock", recommended: true),
-        App(id: "com.android.camera2", name: "Camera", recommended: true),
+        App(id: "com.google.android.youtube", name: "YouTube", recommended: true, common: true),
+        App(id: "com.google.android.apps.youtube.music", name: "YouTube Music", recommended: true, common: true),
+        App(id: "com.google.android.apps.maps", name: "Google Maps", recommended: true, common: true),
+        App(id: "com.google.android.apps.docs", name: "Google Drive", recommended: true, common: true),
+        App(id: "com.google.android.apps.photos", name: "Google Photos", recommended: true, common: true),
+        App(id: "com.google.android.gm", name: "Gmail", recommended: true, common: true),
+        App(id: "com.google.android.calendar", name: "Calendar", recommended: true, common: true),
+        App(id: "com.google.android.apps.messaging", name: "Messages", recommended: true, common: true),
+        App(id: "com.google.android.dialer", name: "Phone", recommended: true, common: true),
+        App(id: "com.google.android.contacts", name: "Contacts", recommended: true, common: true),
+        App(id: "com.google.android.deskclock", name: "Clock", recommended: true, common: true),
+        App(id: "com.android.camera2", name: "Camera", recommended: true, common: true),
         App(id: "com.google.android.apps.wellbeing", name: "Digital Wellbeing", recommended: true),
         App(id: "com.google.android.projection.gearhead", name: "Android Auto", recommended: true),
         App(id: "com.google.android.googlequicksearchbox", name: "Google app & Assistant", recommended: true),
@@ -32,14 +34,30 @@ enum Debloat {
         App(id: "com.google.android.apps.wallpaper.nexus", name: "Live wallpapers", recommended: true),
         App(id: "com.google.android.apps.customization.pixel", name: "Theme picker", recommended: true),
         App(id: "com.google.android.markup", name: "Screenshot markup", recommended: true),
-        App(id: "com.android.chrome", name: "Chrome (Google sign-in may open it)", recommended: false),
+        App(id: "com.android.chrome", name: "Chrome (Google sign-in may open it)", recommended: false, common: true),
     ]
 
     static let recommended = catalog.filter(\.recommended).map(\.id)
 }
 
-/// Android's own home app. nunu Home covers it whenever it's in front.
+/// Android's own home app. nunu Home covers it whenever it's in front, including
+/// its Recents overview, which nunu replaces with its own Recent row.
 let androidLauncher = "com.google.android.apps.nexuslauncher"
+
+/// An app task in Android's recents list.
+struct RecentTask: Identifiable, Equatable {
+    let id: Int        // task id (== root task id on Android 14)
+    let pkg: String
+}
+
+/// System apps with no Play Store page get a name and SF Symbol instead.
+let systemAppInfo: [String: (name: String, symbol: String)] = [
+    "com.android.vending": ("Play Store", "play.fill"),
+    "com.android.settings": ("Settings", "gearshape.fill"),
+    "com.google.android.gms": ("Google Play services", "puzzlepiece.fill"),
+    "com.google.android.packageinstaller": ("Package installer", "shippingbox.fill"),
+    "com.google.android.documentsui": ("Files", "folder.fill"),
+]
 
 /// Catalogue shown under "Popular games" (same list as the Windows launcher).
 struct FeaturedGame: Identifiable {
@@ -131,6 +149,46 @@ extension Engine {
 
     func uninstall(_ pkg: String) async {
         await shell("pm uninstall \(pkg) >/dev/null 2>&1")
+    }
+
+    /// Recent app tasks, most recent first, without home tasks. `unique` keeps
+    /// only each app's newest task.
+    func recentTasks(unique: Bool = true) async -> [RecentTask] {
+        let out = await shell("dumpsys activity recents")
+        var tasks: [RecentTask] = []
+        var seen: Set<String> = []
+        for block in out.components(separatedBy: "* Recent #").dropFirst() {
+            let header = block.prefix { $0 != "\n" }
+            guard !header.contains("type=home"),
+                  let hash = header.range(of: " #"),
+                  let id = Int(header[hash.upperBound...].prefix { $0.isNumber }),
+                  let real = block.range(of: "realActivity={") else { continue }
+            let pkg = String(block[real.upperBound...].prefix { $0 != "/" && $0 != "}" })
+            guard !pkg.isEmpty, pkg != androidLauncher, !(unique && seen.contains(pkg)) else { continue }
+            seen.insert(pkg)
+            tasks.append(RecentTask(id: id, pkg: pkg))
+        }
+        return tasks
+    }
+
+    /// Recent apps that still have a live process, oldest first (tab order).
+    func runningApps() async -> [String] {
+        let tasks = await recentTasks().filter { !transientPackages.contains($0.pkg) }
+        guard !tasks.isEmpty else { return [] }
+        let probe = tasks.map { "pidof \($0.pkg) >/dev/null && echo \($0.pkg)" }.joined(separator: "; ")
+        let alive = Set(await shell(probe).split(whereSeparator: \.isNewline).map(String.init))
+        return tasks.reversed().map(\.pkg).filter(alive.contains)
+    }
+
+    /// Removes the apps' tasks from recents and stops them, freeing their memory.
+    func closeApps(_ pkgs: [String]) async {
+        let tasks = await recentTasks(unique: false)
+        var commands: [String] = []
+        for pkg in pkgs {
+            for t in tasks where t.pkg == pkg { commands.append("cmd activity stack remove \(t.id)") }
+            commands.append("am force-stop \(pkg)")
+        }
+        await shell(commands.joined(separator: "; ") + " >/dev/null 2>&1")
     }
 
     func foregroundPackage() async -> String? {

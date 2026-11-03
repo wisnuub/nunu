@@ -18,6 +18,9 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     private let spinner = NSProgressIndicator()
     private let fpsLabel = NSTextField(labelWithString: "")
     private let library = LibraryModel()
+    private let tabs = TabsModel()
+    private lazy var tabHost = NSHostingView(rootView: TabStripView(model: tabs))
+    private var fpsTimer: Timer?
     private lazy var homeView = NSHostingView(rootView: HomeView(model: library))
     private(set) var homeVisible = false
 
@@ -38,9 +41,13 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         frameView = FrameView(renderer: renderer, keyMapper: keyMapper)
         overlay = ControlsOverlay(keyMapper: keyMapper, frameView: frameView)
 
-        let window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable, .miniaturizable, .resizable],
+        let window = NSWindow(contentRect: .zero,
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.title = "nunu"
+        // App tabs live in the title bar, next to the traffic lights.
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = .black
         window.collectionBehavior = [.fullScreenPrimary]
@@ -55,13 +62,14 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         window.setFrameAutosaveName("nunu.player")
 
         keyMapper.onAimChanged = { [weak self] on in
-            self?.window?.title = on ? "nunu · Mouse-look (Esc or ` to release)" : "nunu"
+            self?.tabs.status = on ? "Mouse-look · Esc or ` to release" : ""
             self?.overlay.needsDisplay = true
         }
         overlay.onEditingChanged = { [weak self] _ in self?.overlay.needsDisplay = true }
         overlay.showHints = settings.showHints
         keyMapper.sensitivityScale = settings.aimSensitivity
         wireLibrary()
+        wireTabs()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -74,7 +82,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         root.layer?.backgroundColor = NSColor.black.cgColor
 
         homeView.isHidden = true
-        for v in [frameView, overlay, homeView, toolbar, cover, fpsLabel] as [NSView] {
+        for v in [tabHost, frameView, overlay, homeView, toolbar, cover, fpsLabel] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(v)
         }
@@ -88,7 +96,6 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         let items: [(String, String, Selector)] = [
             ("chevron.backward", "Back", #selector(back)),
             ("circle", "Home", #selector(home)),
-            ("square.on.square", "Recent apps", #selector(recents)),
             ("", "", #selector(noop)),
             ("bag", "Play Store", #selector(playStore)),
             ("keyboard", "Game controls (⌘K)", #selector(toggleControls)),
@@ -139,12 +146,17 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         fpsLabel.isHidden = !settings.showFPS
 
         NSLayoutConstraint.activate([
-            toolbar.topAnchor.constraint(equalTo: root.topAnchor),
+            tabHost.topAnchor.constraint(equalTo: root.topAnchor),
+            tabHost.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            tabHost.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            tabHost.heightAnchor.constraint(equalToConstant: TabStripView.height),
+
+            toolbar.topAnchor.constraint(equalTo: tabHost.bottomAnchor),
             toolbar.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             toolbar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             toolbar.widthAnchor.constraint(equalToConstant: Self.toolbarWidth),
 
-            frameView.topAnchor.constraint(equalTo: root.topAnchor),
+            frameView.topAnchor.constraint(equalTo: tabHost.bottomAnchor),
             frameView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             frameView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             frameView.trailingAnchor.constraint(equalTo: toolbar.leadingAnchor),
@@ -174,20 +186,20 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Fit the device at 1 point per guest pixel when it fits, else scale to ~85% of the screen.
+    /// The content view spans the whole window (tabs sit in the title bar).
     private func sizeWindow(animate: Bool) {
         guard let window, let screen = window.screen ?? NSScreen.main else { return }
         let visible = screen.visibleFrame.size
         let device = CGSize(width: settings.width, height: settings.height)
-        let chrome = window.frameRect(forContentRect: .zero).size
-        let maxW = visible.width * 0.85 - Self.toolbarWidth - chrome.width
-        let maxH = visible.height * 0.85 - chrome.height
+        let maxW = visible.width * 0.85 - Self.toolbarWidth
+        let maxH = visible.height * 0.85 - TabStripView.height
         let scale = min(1, maxW / device.width, maxH / device.height)
         let content = CGSize(width: (device.width * scale).rounded() + Self.toolbarWidth,
-                             height: (device.height * scale).rounded())
+                             height: (device.height * scale).rounded() + TabStripView.height)
         var frame = window.frameRect(forContentRect: CGRect(origin: window.frame.origin, size: content))
         frame.origin.y += window.frame.height - frame.height
         window.setFrame(frame, display: true, animate: animate)
-        window.contentMinSize = CGSize(width: 320 + Self.toolbarWidth, height: 180)
+        window.contentMinSize = CGSize(width: 480 + Self.toolbarWidth, height: 270 + TabStripView.height)
     }
 
     /// Keep the picture's aspect ratio while dragging the window edge.
@@ -196,7 +208,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         let content = sender.contentRect(forFrameRect: CGRect(origin: .zero, size: frameSize)).size
         let pictureW = max(content.width - Self.toolbarWidth, 100)
         let h = (pictureW * size.height / size.width).rounded()
-        let fitted = CGSize(width: pictureW + Self.toolbarWidth, height: h)
+        let fitted = CGSize(width: pictureW + Self.toolbarWidth, height: h + TabStripView.height)
         return sender.frameRect(forContentRect: CGRect(origin: .zero, size: fitted)).size
     }
 
@@ -222,8 +234,8 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         }
         let renderer = self.renderer
         let stats = self.stats
+        startFPSTimer()
         let handle = shared.handle
-        let fpsLabel = self.fpsLabel
         // 0 x 0 asks for the native size, so rotation never downscales the picture.
         streamTask = Task.detached {
             while !Task.isCancelled {
@@ -232,15 +244,29 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
                         let fw = Int(image.format.width), fh = Int(image.format.height)
                         guard fw > 0, fh > 0 else { return }
                         renderer.frameArrived(width: fw, height: fh)
-                        if let fps = stats.tick() {
-                            Task { @MainActor in fpsLabel.stringValue = "\(fps) fps" }
-                            if FrameStats.logToStderr {
-                                FileHandle.standardError.write(Data("nunu: \(fps) fps \(fw)x\(fh) seq \(image.seq)\n".utf8))
-                            }
-                        }
+                        stats.record()
                     }
                 } catch {}
                 try? await Task.sleep(for: .milliseconds(300))
+            }
+        }
+    }
+
+    /// Frames only arrive when the picture changes, so a still screen really is 0 fps;
+    /// count over a sliding second and say "idle" instead of a confusing 0.
+    private func startFPSTimer() {
+        fpsTimer?.invalidate()
+        var ticks = 0
+        fpsTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let fps = self.stats.fps()
+                self.fpsLabel.stringValue = fps == 0 ? "idle" : "\(fps) fps"
+                self.fpsLabel.textColor = fps == 0 ? .secondaryLabelColor : .systemGreen
+                ticks += 1
+                if FrameStats.logToStderr, ticks % 4 == 0, fps > 0 {
+                    FileHandle.standardError.write(Data("nunu: \(fps) fps \(Int(self.renderer.frameSize.width))x\(Int(self.renderer.frameSize.height))\n".utf8))
+                }
             }
         }
     }
@@ -293,6 +319,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         focusTask?.cancel()
         focusTask = engine.watchForeground { [weak self] pkg in self?.foregroundChanged(pkg) }
         Task {
+            tabs.sync(running: await engine.runningApps())
             if let pkg = await engine.foregroundPackage() { foregroundChanged(pkg) }
         }
     }
@@ -300,9 +327,12 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     /// Swap key maps per app, and cover Android's launcher with nunu Home.
     private func foregroundChanged(_ pkg: String) {
         FileHandle.standardError.write(Data("nunu: foreground \(pkg)\n".utf8))
+        if transientPackages.contains(pkg) { return }  // dialog over the current app
         if pkg == androidLauncher {
+            tabs.showHome()
             setHome(visible: true)
         } else {
+            tabs.activate(pkg)
             setHome(visible: false)
             keyMapper.load(package: pkg)
             overlay.needsDisplay = true
@@ -319,8 +349,42 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
             window?.makeFirstResponder(homeView)
             Task { await library.refresh() }
         } else {
+            library.opening = nil
             homeView.isHidden = true
             window?.makeFirstResponder(frameView)
+        }
+    }
+
+    /// Runs `action` (which brings an app to the front) while Home stays up with an
+    /// "Opening…" note; the foreground event then swaps Home out, so Android's own
+    /// launcher never flashes in between.
+    private func open(_ name: String, _ action: @escaping () async -> Void) {
+        if homeVisible { library.opening = name }
+        Task {
+            await action()
+            try? await Task.sleep(for: .seconds(8))
+            if library.opening == name { library.opening = nil }  // nothing came up; drop the spinner
+        }
+    }
+
+    private func title(for pkg: String) -> String {
+        tabs.tabs.first { $0.id == pkg }?.title
+            ?? library.installed.first { $0.id == pkg }?.title
+            ?? library.featured.first { $0.id == pkg }?.title
+            ?? systemAppInfo[pkg]?.name
+            ?? LibraryModel.fallbackTitle(pkg)
+    }
+
+    private func wireTabs() {
+        let engine = self.engine
+        tabs.onHome = { [weak self] in self?.home() }
+        tabs.onSelect = { [weak self] pkg in
+            guard let self else { return }
+            if pkg == self.tabs.active, !self.homeVisible { return }
+            self.open(self.title(for: pkg)) { await engine.launchApp(pkg) }
+        }
+        tabs.onClose = { pkgs in
+            Task { await engine.closeApps(pkgs) }
         }
     }
 
@@ -328,23 +392,20 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         let engine = self.engine
         library.listApps = { await engine.userApps() }
         library.onLaunch = { [weak self] pkg in
-            self?.setHome(visible: false)
-            Task {
-                await engine.launchApp(pkg)
+            guard let self else { return }
+            self.open(self.title(for: pkg)) {
                 if engine.settings.gameMode { await engine.shell("cmd game mode performance \(pkg) >/dev/null 2>&1") }
+                await engine.launchApp(pkg)
             }
         }
         library.onStorePage = { [weak self] pkg in
-            self?.setHome(visible: false)
-            Task { await engine.openStorePage(pkg) }
+            self?.open("Play Store") { await engine.openStorePage(pkg) }
         }
         library.onPlayStore = { [weak self] in
-            self?.setHome(visible: false)
-            Task { await engine.openPlayStore() }
+            self?.open("Play Store") { await engine.openPlayStore() }
         }
         library.onAndroidSettings = { [weak self] in
-            self?.setHome(visible: false)
-            Task { await engine.openAndroidSettings() }
+            self?.open("Android settings") { await engine.openAndroidSettings() }
         }
         library.onNunuSettings = { [weak self] in self?.onOpenSettings?() }
         library.onEditControls = { [weak self] pkg in self?.editControls(for: pkg) }
@@ -358,11 +419,15 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
 
     /// Opens the game, then the controls editor on top of it.
     func editControls(for pkg: String) {
-        setHome(visible: false)
+        let engine = self.engine
+        open(title(for: pkg)) { await engine.launchApp(pkg) }
         Task {
-            await engine.launchApp(pkg)
-            keyMapper.load(package: pkg)
-            try? await Task.sleep(for: .seconds(2))
+            // Wait for the game to come to the front, then open the editor over it.
+            for _ in 0..<40 where homeVisible || tabs.active != pkg {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            guard tabs.active == pkg else { return }
+            try? await Task.sleep(for: .seconds(1))
             overlay.setEditing(true)
         }
     }
@@ -382,16 +447,19 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     @objc func back() { frameView.client?.press("GoBack") }
     @objc func home() {
         frameView.client?.press("GoHome")
+        tabs.showHome()
         setHome(visible: true)
     }
-    @objc func recents() { frameView.client?.press("AppSwitch") }
+    @objc func closeApp() { tabs.closeActive() }
+    @objc func nextApp() { tabs.cycle(by: 1) }
+    @objc func previousApp() { tabs.cycle(by: -1) }
     @objc func volumeUp() { frameView.client?.press("AudioVolumeUp") }
     @objc func volumeDown() { frameView.client?.press("AudioVolumeDown") }
     @objc func openSettings() { onOpenSettings?() }
 
     @objc func playStore() {
-        setHome(visible: false)
-        Task { await engine.openPlayStore() }
+        let engine = self.engine
+        open("Play Store") { await engine.openPlayStore() }
     }
 
     @objc func toggleControls() {
@@ -421,21 +489,25 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
-/// Counts delivered frames; returns a new per-second figure once a second.
+/// Timestamps of recently delivered frames, for a sliding one-second FPS figure.
 final class FrameStats: @unchecked Sendable {
     static let logToStderr = ProcessInfo.processInfo.environment["NUNU_LOG_FPS"] == "1"
     private let lock = NSLock()
-    private var count = 0
-    private var windowStart = CACurrentMediaTime()
+    private var times: [CFTimeInterval] = []
 
-    func tick() -> Int? {
-        lock.lock(); defer { lock.unlock() }
-        count += 1
+    /// Called on the stream thread for every delivered frame.
+    func record() {
         let now = CACurrentMediaTime()
-        guard now - windowStart >= 1 else { return nil }
-        let fps = Int((Double(count) / (now - windowStart)).rounded())
-        count = 0
-        windowStart = now
-        return fps
+        lock.lock(); defer { lock.unlock() }
+        times.append(now)
+        if times.count > 256 { times.removeFirst(times.count - 256) }
+    }
+
+    /// Frames delivered during the last second.
+    func fps() -> Int {
+        let cutoff = CACurrentMediaTime() - 1
+        lock.lock(); defer { lock.unlock() }
+        times.removeAll { $0 < cutoff }
+        return times.count
     }
 }

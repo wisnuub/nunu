@@ -14,6 +14,7 @@ struct SettingsView: View {
     var onEditControls: () -> Void
 
     @State private var confirmReset = false
+    @State private var showAllApps = false
     private let versions = Engine.versions
     private let gpuName = MTLCreateSystemDefaultDevice()?.name ?? "Apple GPU"
 
@@ -144,15 +145,7 @@ struct SettingsView: View {
     private var apps: some View {
         Form {
             Section {
-                ForEach(Debloat.catalog) { app in
-                    Toggle(app.name, isOn: Binding(
-                        get: { !settings.disabledApps.contains(app.id) },
-                        set: { on in
-                            settings.disabledApps.removeAll { $0 == app.id }
-                            if !on { settings.disabledApps.append(app.id) }
-                        }
-                    ))
-                }
+                ForEach(Debloat.catalog.filter(\.common)) { appToggle($0) }
             } header: {
                 HStack {
                     Text("Preinstalled apps")
@@ -164,8 +157,23 @@ struct SettingsView: View {
                 Text("Turned-off apps are disabled inside Android so they never run in the background. Nothing is deleted; switch one back on any time. Play Store, Play Services and the keyboard always stay.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section {
+                DisclosureGroup("Show all (\(Debloat.catalog.filter { !$0.common }.count) system extras)", isExpanded: $showAllApps) {
+                    ForEach(Debloat.catalog.filter { !$0.common }) { appToggle($0) }
+                }
+            }
         }
         .formStyle(.grouped)
+    }
+
+    private func appToggle(_ app: Debloat.App) -> some View {
+        Toggle(app.name, isOn: Binding(
+            get: { !settings.disabledApps.contains(app.id) },
+            set: { on in
+                settings.disabledApps.removeAll { $0 == app.id }
+                if !on { settings.disabledApps.append(app.id) }
+            }
+        ))
     }
 
     private var controls: some View {

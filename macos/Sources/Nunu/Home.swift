@@ -7,6 +7,14 @@ struct AppTile: Identifiable, Equatable {
     var title: String
     var subtitle: String = ""
     var icon: NSImage?
+    var symbol: String?     // system apps without a store icon
+
+    init(id: String, title: String, subtitle: String = "") {
+        self.id = id
+        self.title = systemAppInfo[id]?.name ?? title
+        self.subtitle = subtitle
+        self.symbol = systemAppInfo[id]?.symbol
+    }
 }
 
 /// Installed games plus a "Popular games" shelf. Names and icons come from the
@@ -16,6 +24,8 @@ final class LibraryModel: ObservableObject {
     @Published var installed: [AppTile] = []
     @Published var featured: [AppTile] = []
     @Published var loading = false
+    /// Name of the app being opened; Home stays up with a spinner until it's in front.
+    @Published var opening: String?
 
     var onLaunch: ((String) -> Void)?
     var onStorePage: ((String) -> Void)?
@@ -58,7 +68,7 @@ final class LibraryModel: ObservableObject {
     }
 
     /// "com.supercell.clashroyale" -> "Clashroyale"
-    static func fallbackTitle(_ pkg: String) -> String {
+    nonisolated static func fallbackTitle(_ pkg: String) -> String {
         let last = pkg.split(separator: ".").last.map(String.init) ?? pkg
         return last.prefix(1).uppercased() + last.dropFirst()
     }
@@ -168,6 +178,19 @@ struct HomeView: View {
                 .padding(28)
             }
         }
+        .overlay(alignment: .bottom) {
+            if let name = model.opening {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("Opening \(name)…").font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .background(.black.opacity(0.6), in: Capsule())
+                .padding(.bottom, 24)
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: model.opening)
         .alert(item: $confirmUninstall) { tile in
             Alert(title: Text("Uninstall \(tile.title)?"),
                   message: Text("Its data and saved controls on this Mac stay until you reinstall."),
@@ -236,6 +259,9 @@ private struct TileView: View {
                 ZStack {
                     if let icon = tile.icon {
                         Image(nsImage: icon).resizable().interpolation(.high)
+                    } else if let symbol = tile.symbol {
+                        LinearGradient(colors: [Color(white: 0.28), Color(white: 0.18)], startPoint: .top, endPoint: .bottom)
+                        Image(systemName: symbol).font(.system(size: 34, weight: .semibold)).foregroundStyle(.white)
                     } else {
                         LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
                         Text(String(tile.title.prefix(1)))
