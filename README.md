@@ -4,7 +4,7 @@
 
 # nunu — Android without compromise
 
-Run Android games natively on your Mac or Windows PC. nunu handles everything — downloading the Android engine, configuring device certification, and giving you a game library to install and launch titles directly.
+Run Android games on your Mac or Windows PC. On Apple Silicon nunu is a native Swift app: Android runs as ARM64 on the M-series cores under Hypervisor.framework, and games draw on the Mac GPU through Metal.
 
 ---
 
@@ -14,7 +14,7 @@ Head to [Releases](https://github.com/wisnuub/nunu/releases) and grab the latest
 
 | Platform | File | Notes |
 |---|---|---|
-| macOS (Apple Silicon) | `nunu-x.x.x.dmg` | Open, drag to Applications, right-click → Open on first launch |
+| macOS (Apple Silicon) | `nunu-x.x.x-arm64.dmg` | Open, drag to Applications, right-click → Open on first launch. macOS 15+ |
 | Windows (x64) | `nunu Setup x.x.x.exe` | Run the installer; click "More info → Run anyway" if SmartScreen appears |
 
 ---
@@ -25,12 +25,15 @@ Head to [Releases](https://github.com/wisnuub/nunu/releases) and grab the latest
 - **Device certification** — sets up Google Play compatibility so certified apps work out of the box
 - **Game library** — browse, install, and launch popular Android games from one place
 - **Google account** — sign in to sync saves and purchases across devices
-- **Google Play Store** — optional Magisk-based GApps install brings Play Store to the AOSP image
+- **Google Play Store**: on macOS, nunu uses Google's certified Android 14 Google Play image
+- **Game controls (macOS)**: BlueStacks-style key mapping: tap keys, WASD D-pad, mouse-look and fire
 - **Smart updates** — Android engine updates download as small delta patches rather than full images
 
 ---
 
 ## Build from source
+
+The macOS app is a Swift package in [`macos/`](macos/), see [macos/README.md](macos/README.md). The rest of this section is the Electron launcher used on Windows.
 
 **Requirements:** Node.js 20+, npm, Git
 
@@ -58,20 +61,20 @@ npm run electron:build:win    # → release/nunu Setup x.x.x.exe
 ```
 nunu (this repo)
 │
-├─ macOS Apple Silicon
-│       nunu-apple — Cuttlefish + Virtualization.framework
-│       Native ARM64 Android, no translation layer, Metal GPU
+├─ macOS Apple Silicon: macos/ (native Swift app)
+│       Google's Android VM engine on Hypervisor.framework, downloaded on first run
+│       ARM64 Android on ARM64 cores, GLES/Vulkan forwarded to Metal (gfxstream)
 │
-└─ Windows x86_64
+└─ Windows x86_64: Electron launcher (electron/, src/)
         nunu-windows — QEMU + WHPX
         Android x86_64, hardware-accelerated
 ```
 
 | Repo | Role |
 |---|---|
-| [nunu](https://github.com/wisnuub/nunu) | Electron + React launcher — this repo |
-| [nunu-apple](https://github.com/wisnuub/nunu-apple) | macOS VM engine — Cuttlefish + Virtualization.framework |
+| [nunu](https://github.com/wisnuub/nunu) | macOS app (`macos/`) and the Electron launcher for Windows |
 | [nunu-windows](https://github.com/wisnuub/nunu-windows) | Windows VM engine — QEMU + WHPX |
+| [nunu-apple](https://github.com/wisnuub/nunu-apple) | Retired macOS engine (Cuttlefish + Virtualization.framework, no 3D GPU for Linux guests) |
 
 **First launch** runs the full onboarding flow: Welcome → Install Engine → Sign In → Complete.  
 **Every launch after that** goes straight to your game library — no setup screens.
@@ -91,7 +94,7 @@ If xdelta3 is not available, nunu falls back to a full image download automatica
 
 ### Google Play Store (macOS)
 
-Settings → Engine → **Patch initramfs** injects Magisk into the Cuttlefish initramfs on the host before the VM starts. Once the VM is running, **Install GApps** pushes a minimal GApps package (Play Store + Google Account, no Chrome or Gmail) as a Magisk module and reboots. Everything is automatic — `magiskboot` and the Magisk APK are downloaded by nunu.
+The macOS app installs Google's `google_apis_playstore` Android 14 ARM64 image, which ships with Play Store and Play Services and is Play-certified. No Magisk or GApps patching.
 
 ---
 
@@ -102,8 +105,8 @@ All runtime data lives under `~/.nunu/` — delete this folder to fully uninstal
 | Path | Purpose |
 |---|---|
 | `~/.nunu/config.json` | App settings and custom image path |
-| `~/.nunu/engines/nunu-apple/` | macOS engine (NunuVM.app) |
-| `~/.nunu/cuttlefish/` | Cuttlefish VM disk images (macOS) |
-| `~/.nunu/sdk/` | Android SDK — emulator + platform-tools (Windows) |
-| `~/.nunu/avd/` | Android Virtual Device files (Windows) |
-| `~/.nunu/magisk/` | magiskboot binary + Magisk APK for GApps patching |
+| `~/.nunu/sdk/` | Android VM engine, platform-tools and system image |
+| `~/.nunu/avd/` | Android device files and the quick-boot snapshot |
+| `~/.nunu/keymaps/` | Per-game controls (macOS) |
+| `~/.nunu/logs/` | `nunu.log` and `engine.log` (macOS) |
+| `~/.nunu/engines/`, `~/.nunu/magisk/` | Left over from the old macOS engine, safe to delete |

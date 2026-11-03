@@ -8,68 +8,20 @@ on:
 
 jobs:
   build-mac:
-    name: Build macOS
-    runs-on: macos-14
+    name: Build macOS (native)
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Write Google credentials
-        run: |
-          mkdir -p native/credentials
-          echo '{"clientId":"${{ secrets.GOOGLE_CLIENT_ID }}","clientSecret":"${{ secrets.GOOGLE_CLIENT_SECRET }}"}' > native/credentials/google.json
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Build renderer
-        run: npm run build
-
-      - name: Package app (macOS)
-        run: npx electron-builder --mac dir --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-
-      - name: Sign app (ad-hoc + Hypervisor entitlement)
-        run: |
-          cat > nunu.entitlements <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>com.apple.security.cs.allow-jit</key><true/>
-            <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
-            <key>com.apple.security.cs.disable-library-validation</key><true/>
-          </dict></plist>
-          EOF
-          codesign \
-            --entitlements nunu.entitlements \
-            --force \
-            --deep \
-            --sign - \
-            "release/mac-arm64/nunu.app"
-
-      - name: Create DMG
-        run: |
-          STAGING=$(mktemp -d)
-          cp -r "release/mac-arm64/nunu.app" "$STAGING/"
-          ln -s /Applications "$STAGING/Applications"
-          hdiutil create \
-            -volname "nunu" \
-            -srcfolder "$STAGING" \
-            -ov -format UDZO \
-            -imagekey zlib-level=9 \
-            "release/nunu-${{ github.ref_name }}-arm64.dmg"
-          rm -rf "$STAGING"
+      - name: Build nunu.app and DMG
+        working-directory: macos
+        run: scripts/build-app.sh --dmg
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: nunu-mac
-          path: release/nunu-${{ github.ref_name }}-arm64.dmg
+          path: macos/build/nunu-*-arm64.dmg
 
   build-win:
     name: Build Windows
@@ -141,23 +93,17 @@ jobs:
             ### Platform status
             | Platform | Status |
             |---|---|
-            | macOS (Apple Silicon) | Launcher + nunu-apple engine install |
-            | Windows | Launcher UI only — emulator coming soon |
+            | macOS (Apple Silicon) | Native Swift app, Android 14 with Google Play |
+            | Windows | Launcher UI only, emulator coming soon |
 
             ### Download
-            - **macOS (Apple Silicon)** — `.dmg`, drag nunu to Applications
-            - **Windows** — `.exe` installer
-
-            ### What's new (macOS)
-            - **Settings → Engine**: install/update nunu-apple (NunuVM) engine from within the app
-            - macOS path now uses Cuttlefish via nunu-apple engine (NunuVM) instead of AVM
-            - Cursor fix: pointer stays visible when clicking inside the VM
-            - Engine version tracking and update detection
+            - **macOS (Apple Silicon)**: `.dmg`, drag nunu to Applications
+            - **Windows**: `.exe` installer
 
             ### First run (macOS)
-            1. Open nunu → Settings → Engine → Install
-            2. nunu-apple engine downloads automatically
-            3. Install Cuttlefish images and configure `~/.nunu/config.json`
+            1. Open nunu and accept the Android SDK licenses
+            2. nunu downloads the Android VM engine and the Android 14 Google Play image (about 1.9 GB)
+            3. Android boots in about 30 seconds; after that it resumes in a few seconds
 
             ### Notes
             - macOS: right-click → Open on first launch if Gatekeeper blocks it

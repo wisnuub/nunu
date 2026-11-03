@@ -1,0 +1,90 @@
+# nunu for macOS
+
+Native Swift app for Apple Silicon. No Electron. It runs Android 14 with Google Play in a hardware-virtualized ARM64 VM and draws it in nunu's own Metal window.
+
+## How it works
+
+```
+nunu.app (Swift, AppKit + Metal)
+│
+├── Engine.swift          launches / re-attaches / stops the Android VM
+├── EngineClient.swift    gRPC: frame stream, multitouch + key input stream
+├── FrameRenderer.swift   shared-memory frames -> Metal texture (no copy)
+├── FrameView.swift       mouse -> touch, trackpad -> swipe/pinch, keys
+├── KeyMap.swift          BlueStacks-style controls: keys, D-pad, mouse-look
+└── SDKInstaller.swift    first-run download from Google's SDK repository
+        │
+        ▼
+Android VM engine (Google's QEMU fork, downloaded to ~/.nunu/sdk on first run)
+├── CPU:  Hypervisor.framework, ARM64 guest on ARM64 host, no translation
+└── GPU:  gfxstream: guest GLES / Vulkan -> host Metal (MoltenVK for Vulkan)
+```
+
+The VM runs with its own window hidden. nunu asks the engine to stream finished
+frames into a shared-memory file that nunu also maps as an `MTLBuffer`, so the GPU
+samples Android's pixels straight from that memory. Input goes back over one
+long-lived gRPC stream, so a tap costs one HTTP/2 frame, not an `adb` process.
+
+Why not Virtualization.framework (the old `nunu-apple` engine): Apple only gives
+Linux guests a 2D framebuffer there, so every game frame was drawn on the CPU.
+
+## Measured on an M1 MacBook (8 GB)
+
+| | |
+|---|---|
+| Guest GPU | `OpenGL ES Translator (Apple M1)`, OpenGL ES 3.0 over Metal; Vulkan 1.3 via MoltenVK |
+| Guest CPU | M1 cores directly (guest sees `sha3 sb paca pacg`) |
+| Cold boot | 16–34 s |
+| Resume from quick-boot snapshot | ~2 s engine restore, ready in ~8 s |
+| Display path | 55–60 fps delivered at 1280×720 while scrolling, no dropped frames |
+
+## Build and run
+
+Requirements: macOS 15+, Apple Silicon, Xcode 16+.
+
+```bash
+cd macos
+swift build && .build/debug/Nunu         # dev run, logs to the terminal
+scripts/build-app.sh                     # build/nunu.app
+scripts/build-app.sh --dmg               # build/nunu-<version>-arm64.dmg
+```
+
+`NUNU_LOG_FPS=1` prints the delivered frame rate once a second.
+
+The gRPC client in `Sources/EmulatorAPI` is generated from `proto/emulator_controller.proto`
+(shipped with the engine). Regenerate with `scripts/gen-proto.sh`.
+
+## Using it
+
+| Mac | Android |
+|---|---|
+| Click / drag | Touch |
+| Trackpad scroll, mouse wheel | Finger swipe |
+| Pinch | Two-finger pinch |
+| Keyboard | Keyboard (⌘ shortcuts stay with macOS) |
+| ⌘[ · ⇧⌘H · ⇧⌘R | Back · Home · Recent apps |
+| ⌘K | Edit game controls |
+| ⌘S | Screenshot to ~/Pictures/nunu |
+
+**Game controls** are saved per app in `~/.nunu/keymaps/<package>.json` and switch
+automatically when you change app. In the editor (⌘K):
+
+- **Key**: click a spot, press a key. Holding the key holds a finger there.
+- **D-pad**: W A S D drive a finger around the game's movement stick.
+- **Aim**: ` toggles mouse-look for shooters. The cursor locks, mouse movement drags a finger over the camera area, Esc releases.
+- **Fire**: a spot that left-click taps while aiming.
+
+Drag to move, click a control and press a key to rebind, right-click or Delete to remove.
+
+Quitting saves Android's state (quick boot), so the next launch resumes where you left off.
+
+## Data
+
+| Path | |
+|---|---|
+| `~/.nunu/sdk/` | Engine, platform-tools, Android 14 Google Play image |
+| `~/.nunu/avd/nunu.avd/` | Device config, user data, quick-boot snapshot |
+| `~/.nunu/keymaps/` | Per-game controls |
+| `~/.nunu/logs/` | `nunu.log`, `engine.log` |
+
+nunu runs its own adb server on port 5137 so it never restarts another SDK's adb.
