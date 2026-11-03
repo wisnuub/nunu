@@ -15,7 +15,9 @@ nunu.app (Swift, AppKit + Metal)
 ├── Home.swift            nunu Home: native game library over Android's launcher
 ├── AppTabs.swift         title-bar tabs for open apps (switch, close)
 ├── Guest.swift           debloat, per-boot tuning, foreground-app events
-├── SettingsView.swift    Performance / Display / Graphics / Apps / Controls / Advanced
+├── Root.swift            KernelSU: fetch kernel + manager, install, device-profile module
+├── DeviceProfile.swift   build-fingerprint presets for root hiding
+├── SettingsView.swift    Performance / Display / Graphics / Apps / Controls / Root / Advanced
 └── SDKInstaller.swift    first-run download from Google's SDK repository
         │
         ▼
@@ -89,6 +91,17 @@ Settings > Advanced > Set up fingerprint in Android; Android needs a screen lock
 then nunu asks for Touch ID once and performs all the enrollment touches. The toolbar's
 Touch ID button (⇧⌘T) answers any prompt manually.
 
+**Root (KernelSU)**: Settings > Root. nunu boots a custom KernelSU-Next + SUSFS
+kernel through the emulator's `-kernel` flag *only while root is on*, so the toggle
+is a clean on/off: turning it off boots the stock kernel with no leftover. SUSFS
+hides root from detection (Play Integrity, anti-cheat). The kernel is built in
+[nunu-kernel](https://github.com/wisnuub/nunu-kernel) to match the image's
+`android14-6.1` kernel; Download kernel + manager fetches it and the KernelSU-Next
+manager app, which grants or denies root per app. A **device profile** spoofs the
+build fingerprint to a real phone (Pixel 8 Pro, S23 Ultra…) via a `resetprop`
+module so the emulator and root stay hidden. Changing the toggle or profile
+restarts Android.
+
 **Settings** (⌘,):
 
 | Tab | |
@@ -98,6 +111,7 @@ Touch ID button (⇧⌘T) answers any prompt manually.
 | Graphics | Metal GPU or software renderer, Vulkan on/off |
 | Apps | Disable preinstalled apps: everyday ones first (Gmail, Photos, YouTube, Calendar…), system extras under Show all; the recommended set is applied on first boot |
 | Controls | Control hints, mouse-look sensitivity |
+| Root | KernelSU toggle, device profile, status (kernel / manager / root active), download and install |
 | Advanced | Quick boot, sound, storage size, ADB address, versions, logs, reset Android |
 
 Every boot nunu also turns off background Wi-Fi/BLE scanning, keeps the screen awake,
@@ -132,6 +146,7 @@ Quitting saves Android's state (quick boot), so the next launch resumes where yo
 |---|---|
 | `~/.nunu/sdk/` | Engine, platform-tools, Android 14 Google Play image |
 | `~/.nunu/avd/nunu.avd/` | Device config, user data, quick-boot snapshot |
+| `~/.nunu/root/` | KernelSU kernel, manager APK, device-profile module |
 | `~/.nunu/keymaps/` | Per-game controls |
 | `~/.nunu/logs/` | `nunu.log`, `engine.log` |
 

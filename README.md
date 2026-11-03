@@ -29,6 +29,7 @@ Grab the latest build from [Releases](https://github.com/wisnuub/nunu/releases):
 - **Touch ID**: use your Mac's fingerprint when Android asks for one.
 - **Install from Mac**: drag an `.apk`, `.apks` or `.xapk` onto the window, or double-click one in Finder.
 - **Google Play**: nunu uses Google's certified Android 14 Google Play image. Play Store and Play Services are built in.
+- **Root (optional)**: a toggle in Settings boots a KernelSU + SUSFS kernel so apps can get root, with SUSFS hiding it from detection. Turning it off boots the stock kernel with no trace. Device profiles spoof a real phone's fingerprint.
 - **Quick boot**: quitting saves Android's state, so the next launch resumes in seconds.
 - **Tuning**: pick CPU cores, memory, resolution and frame rate. nunu also turns off unneeded preinstalled apps, which you can switch back on.
 
@@ -92,6 +93,7 @@ Everything lives under `~/.nunu/`. Delete this folder to fully uninstall.
 |---|---|
 | `~/.nunu/sdk/` | Android VM engine, platform-tools and system image |
 | `~/.nunu/avd/` | Android device files and the quick-boot snapshot |
+| `~/.nunu/root/` | KernelSU kernel, manager app and device-profile module (only if root is used) |
 | `~/.nunu/keymaps/` | Per-game controls |
 | `~/.nunu/library/` | Cached app names and icons |
 | `~/.nunu/logs/` | `nunu.log` and `engine.log` |
