@@ -112,7 +112,8 @@ struct SettingsView: View {
                     ForEach(DeviceSettings.densities, id: \.self) { Text("\($0) DPI").tag($0) }
                 }
             } footer: {
-                Text("Most games are landscape. Higher DPI makes Android's interface bigger; lower fits more on screen.")
+                Text("Most games are landscape. Higher DPI makes Android's interface bigger; lower fits more on screen."
+                     + (DeviceSettings.hostGB <= 8 ? " On an \(DeviceSettings.hostGB) GB Mac, 1280 × 720 leaves the most memory for the game itself." : ""))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {

@@ -79,6 +79,38 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         touchID.enabled = settings.touchID
         wireLibrary()
         wireTabs()
+        watchMemoryPressure()
+    }
+
+    // MARK: Mac memory
+
+    private var memoryPressure: DispatchSourceMemoryPressure?
+    private var lastMemoryWarning = Date.distantPast
+
+    /// On an 8 GB Mac the usual cause of stutter is macOS swapping the game's memory
+    /// out. When that starts, name the apps holding the most so the user can choose.
+    private func watchMemoryPressure() {
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.memoryPressureRose() }
+        }
+        source.resume()
+        memoryPressure = source
+    }
+
+    private func memoryPressureRose() {
+        guard engine.phase == .ready, Date().timeIntervalSince(lastMemoryWarning) > 300 else { return }
+        lastMemoryWarning = Date()
+        Task {
+            let hogs = await Engine.offPool { MemoryHogs.top(limit: 2, atLeastMB: 600) }
+            let names = hogs.map { "\($0.name) (\(String(format: "%.1f", Double($0.mb) / 1024)) GB)" }
+            tabs.notice = names.isEmpty
+                ? "Mac memory is full, games may stutter"
+                : "Mac memory is full. Quitting \(names.joined(separator: " and ")) would help"
+            FileHandle.standardError.write(Data("nunu: memory pressure; top: \(names)\n".utf8))
+            try? await Task.sleep(for: .seconds(15))
+            if tabs.notice.hasPrefix("Mac memory") { tabs.notice = "" }
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -255,13 +287,34 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         frameView.client = client
         streamTask?.cancel()
         shared = renderer.prepare(width: settings.width, height: settings.height)
-        guard let shared else {
+        guard shared != nil else {
             show(status: "Couldn't allocate the shared display buffer.", spinning: false)
             return
         }
+        startFPSTimer()
+        updateStreaming()
+    }
+
+    /// Every streamed frame is read back from the GPU and copied, so only stream
+    /// while the picture can actually be seen.
+    private func updateStreaming() {
+        let visible = window.map { $0.occlusionState.contains(.visible) && !$0.isMiniaturized } ?? false
+        if visible, streamTask == nil, engine.phase == .ready || engine.phase == .booting {
+            startStreaming()
+        } else if !visible, streamTask != nil {
+            streamTask?.cancel()
+            streamTask = nil
+        }
+    }
+
+    func windowDidChangeOcclusionState(_ notification: Notification) { updateStreaming() }
+    func windowDidMiniaturize(_ notification: Notification) { updateStreaming() }
+    func windowDidDeminiaturize(_ notification: Notification) { updateStreaming() }
+
+    private func startStreaming() {
+        guard let client = frameView.client, let shared else { return }
         let renderer = self.renderer
         let stats = self.stats
-        startFPSTimer()
         let handle = shared.handle
         // 0 x 0 asks for the native size, so rotation never downscales the picture.
         streamTask = Task.detached {
@@ -302,9 +355,12 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     func engineChanged(_ phase: Engine.Phase) {
         switch phase {
         case .launching: show(status: "Starting Android…", spinning: true)
-        case .booting: show(status: "Booting Android…", spinning: true)
+        case .booting:
+            show(status: "Booting Android…", spinning: true)
+            updateStreaming()
         case .ready:
             hideCover()
+            updateStreaming()
         case .stopping:
             stopStreaming()
             show(status: "Saving Android state so it resumes in seconds next time…", spinning: true)
@@ -377,6 +433,11 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
             tabs.activate(pkg)
             setHome(visible: false)
             let changed = keyMapper.package != pkg
+            if changed, library.games.contains(where: { $0.id == pkg }) {
+                // Game boost: stop cached background apps (Play Store, Google services)
+                // so the game gets the guest's memory and CPU.
+                Task { await engine.shell("am kill-all >/dev/null 2>&1") }
+            }
             keyMapper.load(package: pkg)
             overlay.needsDisplay = true
             // Per-game: lock the mouse straight away (e.g. a shooter).
