@@ -42,6 +42,7 @@ final class TabsModel: ObservableObject {
     @Published var fps = ""
 
     var onHome: (() -> Void)?
+    var onTitleBarDoubleClick: (() -> Void)?
     var onSelect: ((String) -> Void)?
     var onClose: (([String]) -> Void)?
 
@@ -145,12 +146,14 @@ struct TabStripView: View {
         .ignoresSafeArea()
     }
 
-    /// Empty title-bar space still moves the window.
+    /// Empty title-bar space behaves like a title bar: drag moves the window,
+    /// double-click zooms/minimises per the system setting.
     private var dragArea: some View {
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(WindowDragGesture())
+            .simultaneousGesture(TapGesture(count: 2).onEnded { model.onTitleBarDoubleClick?() })
     }
 }
 

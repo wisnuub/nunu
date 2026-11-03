@@ -210,6 +210,28 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         return sender.frameRect(forContentRect: CGRect(origin: .zero, size: fitted)).size
     }
 
+    /// What macOS would do on a title-bar double-click (System Settings > Desktop & Dock).
+    private func titleBarDoubleClicked() {
+        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+        case "Minimize": window?.miniaturize(nil)
+        case "None": break
+        default: window?.zoom(nil)   // "Maximize" / "Fill" / unset
+        }
+    }
+
+    /// Zoom target: the biggest window that keeps the picture's aspect ratio on this
+    /// screen, so the game fills it with no black bars. zoom() toggles back by itself.
+    func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame newFrame: NSRect) -> NSRect {
+        let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? newFrame
+        let size = renderer.frameSize.width > 0 ? renderer.frameSize : CGSize(width: settings.width, height: settings.height)
+        let aspect = size.height / size.width
+        let pictureW = min(visible.width - Self.toolbarWidth, (visible.height - barHeight) / aspect).rounded(.down)
+        let content = CGSize(width: pictureW + Self.toolbarWidth, height: (pictureW * aspect).rounded() + barHeight)
+        let frame = window.frameRect(forContentRect: CGRect(origin: .zero, size: content))
+        return CGRect(x: visible.midX - frame.width / 2, y: visible.midY - frame.height / 2,
+                      width: frame.width, height: frame.height)
+    }
+
     /// Closing the player quits nunu, keeping the window up while Android saves.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         NSApp.terminate(nil)
@@ -388,6 +410,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     private func wireTabs() {
         let engine = self.engine
         tabs.onHome = { [weak self] in self?.home() }
+        tabs.onTitleBarDoubleClick = { [weak self] in self?.titleBarDoubleClicked() }
         tabs.onSelect = { [weak self] pkg in
             guard let self else { return }
             if pkg == self.tabs.active, !self.homeVisible { return }
