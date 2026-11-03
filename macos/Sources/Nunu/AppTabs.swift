@@ -40,6 +40,8 @@ final class TabsModel: ObservableObject {
     @Published var status = ""
     /// Frame-rate readout, empty when the counter is off.
     @Published var fps = ""
+    /// Transient note, e.g. fingerprint setup progress.
+    @Published var notice = ""
 
     var onHome: (() -> Void)?
     var onTitleBarDoubleClick: (() -> Void)?
@@ -126,6 +128,12 @@ struct TabStripView: View {
                     }
             }
             dragArea
+            if !model.notice.isEmpty {
+                Label(model.notice, systemImage: "touchid")
+                    .font(.system(size: 11, weight: .medium)).foregroundStyle(.white)
+                    .padding(.trailing, 8)
+                    .transition(.opacity)
+            }
             if !model.status.isEmpty {
                 Text(model.status)
                     .font(.system(size: 11, weight: .medium)).foregroundStyle(.orange)

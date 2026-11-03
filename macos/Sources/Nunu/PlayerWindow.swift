@@ -417,6 +417,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         let engine = self.engine
         tabs.onHome = { [weak self] in self?.home() }
         tabs.onTitleBarDoubleClick = { [weak self] in self?.titleBarDoubleClicked() }
+        touchID.onNotice = { [weak self] text in self?.tabs.notice = text ?? "" }
         tabs.onSelect = { [weak self] pkg in
             guard let self else { return }
             if pkg == self.tabs.active, !self.homeVisible { return }
