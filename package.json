@@ -1,6 +1,6 @@
 {
   "name": "nunu",
-  "version": "0.0.8",
+  "version": "0.0.1",
   "description": "Android without compromise",
   "main": "dist-electron/main.js",
   "scripts": {
