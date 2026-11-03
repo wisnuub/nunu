@@ -44,6 +44,12 @@ enum Debloat {
 /// its Recents overview, which nunu replaces with its own Recent row.
 let androidLauncher = "com.google.android.apps.nexuslauncher"
 
+struct InstallSession: Equatable {
+    let id: Int
+    let pkg: String
+    let progress: Double   // 0...1
+}
+
 /// An app task in Android's recents list.
 struct RecentTask: Identifiable, Equatable {
     let id: Int        // task id (== root task id on Android 14)
@@ -135,6 +141,71 @@ extension Engine {
             .sorted()
     }
 
+    /// Installed apps that have a home-screen icon (skips background components
+    /// like Play's verifier/SafetyCore that arrive after sign-in).
+    func launchableUserApps() async -> [String] {
+        let user = await userApps()
+        let out = await shell("cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER")
+        let launchable = Set(out.split(whereSeparator: \.isNewline).compactMap { raw -> String? in
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard !line.contains(" "), let slash = line.firstIndex(of: "/") else { return nil }
+            return String(line[..<slash])
+        })
+        return user.filter(launchable.contains)
+    }
+
+    /// Downloads/installs in progress (Play Store install sessions).
+    func installSessions() async -> [InstallSession] {
+        let out = await shell("dumpsys package installs")
+        guard let start = out.range(of: "Active install sessions:") else { return [] }
+        let end = out.range(of: "Historical install sessions:")?.lowerBound ?? out.endIndex
+        guard start.upperBound < end else { return [] }
+        var sessions: [InstallSession] = []
+        for block in out[start.upperBound..<end].components(separatedBy: "Active Session ").dropFirst() {
+            func value(_ key: String) -> String? {
+                guard let r = block.range(of: key) else { return nil }
+                return String(block[r.upperBound...].prefix { !$0.isWhitespace })
+            }
+            guard let id = Int(block.prefix { $0.isNumber }), let pkg = value("appPackageName="),
+                  !pkg.isEmpty, pkg != "null", value("mCommitted=") != "true", value("mDestroyed=") != "true"
+            else { continue }
+            sessions.append(InstallSession(id: id, pkg: pkg, progress: Double(value("mClientProgress=") ?? "") ?? 0))
+        }
+        return sessions
+    }
+
+    /// Cancels a download. The session belongs to the Play Store, so if Android
+    /// won't let shell abandon it, press Play's own cancel button on the app's page.
+    func cancelDownload(_ s: InstallSession) async -> Bool {
+        if await shell("pm install-abandon \(s.id) 2>&1").contains("Success") { return true }
+        await openStorePage(s.pkg)
+        for _ in 0..<4 {
+            try? await Task.sleep(for: .milliseconds(1200))
+            if await tapNode(labelled: ["Cancel download", "Cancel install", "Cancel"]) { return true }
+        }
+        return false
+    }
+
+    /// Finds an on-screen element by text/content description via uiautomator and taps it.
+    func tapNode(labelled labels: [String]) async -> Bool {
+        let xml = await shell("uiautomator dump /dev/tty 2>/dev/null")
+        for node in xml.components(separatedBy: "<node ").dropFirst() {
+            func attr(_ name: String) -> String? {
+                guard let r = node.range(of: " \(name)=\"") ?? (node.hasPrefix("\(name)=\"") ? node.range(of: "\(name)=\"") : nil)
+                else { return nil }
+                return String(node[r.upperBound...].prefix { $0 != "\"" })
+            }
+            let names = [attr("text"), attr("content-desc")].compactMap { $0 }
+            guard names.contains(where: { n in labels.contains { n.caseInsensitiveCompare($0) == .orderedSame } }),
+                  let bounds = attr("bounds") else { continue }
+            let nums = bounds.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+            guard nums.count == 4 else { continue }
+            await shell("input tap \((nums[0] + nums[2]) / 2) \((nums[1] + nums[3]) / 2)")
+            return true
+        }
+        return false
+    }
+
     func launchApp(_ pkg: String) async {
         await shell("monkey -p \(pkg) -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1")
     }
@@ -199,37 +270,20 @@ extension Engine {
     }
 
     /// Streams foreground-app changes from Android's event log as they happen,
-    /// instead of polling dumpsys. Ends when the engine goes away.
-    func watchForeground(_ onChange: @escaping @MainActor (String) -> Void) -> Task<Void, Never> {
+    /// instead of polling dumpsys. Stop it with `cancel()`.
+    func watchForeground(_ onChange: @escaping @MainActor (String) -> Void) -> LogStream? {
         streamLogcat("-b events -T 1 -v brief -s wm_set_resumed_activity") { line in
             // I/wm_set_resumed_activity( 567): [0,com.foo/.Main,reason]
             guard let open = line.firstIndex(of: "[") else { return }
             let fields = line[line.index(after: open)...].split(separator: ",")
             guard fields.count > 1, let slash = fields[1].firstIndex(of: "/") else { return }
-            await onChange(String(fields[1][..<slash]))
+            onChange(String(fields[1][..<slash]))
         }
     }
 
-    /// Runs `logcat <args>` in the guest and hands each line to `onLine` until cancelled.
-    func streamLogcat(_ args: String, onLine: @escaping @Sendable (String) async -> Void) -> Task<Void, Never> {
-        let serial = self.serial
-        return Task.detached {
-            let p = Process()
-            p.executableURL = Paths.adb
-            p.arguments = ["-s", serial, "shell", "logcat \(args)"]
-            p.environment = Engine.environment
-            let out = Pipe()
-            p.standardOutput = out
-            p.standardError = FileHandle.nullDevice
-            guard (try? p.run()) != nil else { return }
-            await withTaskCancellationHandler {
-                do {
-                    for try await line in out.fileHandleForReading.bytes.lines { await onLine(line) }
-                } catch {}
-            } onCancel: {
-                p.terminate()
-            }
-        }
+    /// Runs `logcat <args>` in the guest and hands each line to `onLine` on the main actor.
+    func streamLogcat(_ args: String, onLine: @escaping @MainActor (String) -> Void) -> LogStream? {
+        LogStream(arguments: ["-s", serial, "shell", "logcat \(args)"], onLine: onLine)
     }
 
     /// "topResumedActivity=ActivityRecord{1a2b u0 com.foo.bar/.Main t12}" -> "com.foo.bar"
@@ -240,4 +294,40 @@ extension Engine {
         let pkg = String(head[head.index(after: space)...])
         return pkg.isEmpty ? nil : pkg
     }
+}
+
+/// A long-running `adb shell logcat`. Lines are read with a GCD readability
+/// handler (no Swift task sits blocked in read()) and delivered on the main actor.
+final class LogStream: @unchecked Sendable {
+    private let process = Process()
+    private var pending = Data()
+
+    init?(arguments: [String], onLine: @escaping @MainActor (String) -> Void) {
+        process.executableURL = Paths.adb
+        process.arguments = arguments
+        process.environment = Engine.environment
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+        out.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let chunk = handle.availableData
+            guard let self, !chunk.isEmpty else {
+                handle.readabilityHandler = nil   // EOF: adb exited
+                return
+            }
+            self.pending.append(chunk)
+            while let nl = self.pending.firstIndex(of: 0x0A) {
+                let line = String(decoding: self.pending[self.pending.startIndex..<nl], as: UTF8.self)
+                self.pending.removeSubrange(self.pending.startIndex...nl)
+                DispatchQueue.main.async { MainActor.assumeIsolated { onLine(line) } }
+            }
+        }
+        guard (try? process.run()) != nil else { return nil }
+    }
+
+    func cancel() {
+        if process.isRunning { process.terminate() }
+    }
+
+    deinit { cancel() }
 }

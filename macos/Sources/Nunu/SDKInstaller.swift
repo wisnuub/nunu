@@ -182,7 +182,7 @@ final class SDKInstaller: ObservableObject {
     }
 
     nonisolated private static func verify(_ file: URL, sha1 expected: String) async throws {
-        try await Task.detached {
+        try await Task.detached(priority: .utility) {
             let h = try FileHandle(forReadingFrom: file)
             defer { try? h.close() }
             var sha = Insecure.SHA1()

@@ -26,11 +26,14 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     }()
     private var fpsTimer: Timer?
     private lazy var touchID = TouchIDBridge(engine: engine)
+    private lazy var sideloader = Sideloader(engine: engine)
+    private var sessions: [InstallSession] = []
     private lazy var homeView = NSHostingView(rootView: HomeView(model: library))
     private(set) var homeVisible = false
 
     private var streamTask: Task<Void, Never>?
-    private var focusTask: Task<Void, Never>?
+    private var focusTask: LogStream?
+    private var homeCheck: Timer?
     private var shared: SharedFrame?
     private let stats = FrameStats()
 
@@ -67,7 +70,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         window.setFrameAutosaveName("nunu.player")
 
         keyMapper.onAimChanged = { [weak self] on in
-            self?.tabs.status = on ? "Mouse-look · Esc or ` to release" : ""
+            self?.tabs.status = on ? "Mouse locked · ⌃⌥ to release" : ""
             self?.overlay.needsDisplay = true
         }
         overlay.onEditingChanged = { [weak self] _ in self?.overlay.needsDisplay = true }
@@ -83,7 +86,8 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     // MARK: Layout
 
     private func buildContent() {
-        let root = NSView()
+        let root = DropView()
+        root.onDrop = { [weak self] urls in self?.sideload(urls) }
         root.wantsLayer = true
         root.layer?.backgroundColor = NSColor.black.cgColor
 
@@ -372,8 +376,13 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         } else {
             tabs.activate(pkg)
             setHome(visible: false)
+            let changed = keyMapper.package != pkg
             keyMapper.load(package: pkg)
             overlay.needsDisplay = true
+            // Per-game: lock the mouse straight away (e.g. a shooter).
+            if changed, keyMapper.map.lockOnOpen, keyMapper.hasAim, window?.isKeyWindow == true {
+                keyMapper.setAiming(true)
+            }
         }
     }
 
@@ -386,7 +395,20 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
             homeView.isHidden = false
             window?.makeFirstResponder(homeView)
             Task { await library.refresh() }
+            homeCheck?.invalidate()
+            var tick = 0
+            homeCheck = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    tick += 1
+                    self.pollDownloads()
+                    if tick % 3 == 0 { self.reconcileForeground() }
+                }
+            }
+            pollDownloads()
         } else {
+            homeCheck?.invalidate()
+            homeCheck = nil
             library.opening = nil
             homeView.isHidden = true
             window?.makeFirstResponder(frameView)
@@ -400,17 +422,29 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         if homeVisible { library.opening = name }
         Task {
             await action()
+            // If the app was already in front under Home, Android sends no event.
+            try? await Task.sleep(for: .milliseconds(800))
+            reconcileForeground()
             try? await Task.sleep(for: .seconds(8))
             if library.opening == name { library.opening = nil }  // nothing came up; drop the spinner
         }
     }
 
     private func title(for pkg: String) -> String {
-        tabs.tabs.first { $0.id == pkg }?.title
-            ?? library.installed.first { $0.id == pkg }?.title
-            ?? library.featured.first { $0.id == pkg }?.title
-            ?? systemAppInfo[pkg]?.name
-            ?? LibraryModel.fallbackTitle(pkg)
+        let known: [AppTile] = library.games + library.others + library.featured
+        if let tab = tabs.tabs.first(where: { $0.id == pkg }) { return tab.title }
+        if let tile = known.first(where: { $0.id == pkg }) { return tile.title }
+        return systemAppInfo[pkg]?.name ?? LibraryModel.fallbackTitle(pkg)
+    }
+
+    /// Safety net for missed foreground events: Home must never cover a running app.
+    private func reconcileForeground() {
+        guard homeVisible else { return }
+        Task {
+            guard let fg = await engine.foregroundPackage(), fg != androidLauncher,
+                  !transientPackages.contains(fg) else { return }
+            foregroundChanged(fg)
+        }
     }
 
     private func wireTabs() {
@@ -430,7 +464,11 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
 
     private func wireLibrary() {
         let engine = self.engine
-        library.listApps = { await engine.userApps() }
+        library.listApps = { await engine.launchableUserApps() }
+        library.onInstallAPK = { [weak self] in self?.installAPK() }
+        library.onCancelDownload = { [weak self] id in self?.cancelDownload(id) }
+        sideloader.onChange = { [weak self] in self?.pollDownloads() }
+        sideloader.onFinished = { [weak self] name, error in self?.sideloadFinished(name, error) }
         library.onLaunch = { [weak self] pkg in
             guard let self else { return }
             self.open(self.title(for: pkg)) {
@@ -455,6 +493,65 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
                 await self?.library.refresh()
             }
         }
+    }
+
+    // MARK: Downloads & sideloading
+
+    /// Play Store install sessions plus sideloads, shown as progress tiles in Home.
+    private func pollDownloads() {
+        Task {
+            sessions = await engine.installSessions()
+            let local = sideloader.active.keys.sorted().map { (pkg: "apk:\($0)", progress: -1.0) }
+            library.updateDownloads(sessions.map { (pkg: $0.pkg, progress: $0.progress) } + local)
+        }
+    }
+
+    private func cancelDownload(_ id: String) {
+        if id.hasPrefix("apk:") {
+            sideloader.cancel(String(id.dropFirst(4)))
+            return
+        }
+        guard let session = sessions.first(where: { $0.pkg == id }) else { return }
+        let engine = self.engine
+        Task {
+            let cancelled = await engine.cancelDownload(session)
+            // Cancelling through Play's page leaves it open; come back to Home.
+            frameView.client?.press("GoHome")
+            tabs.notice = cancelled ? "Download cancelled" : "Couldn't cancel. Use the X on the Play Store page."
+            try? await Task.sleep(for: .seconds(3))
+            tabs.notice = ""
+            pollDownloads()
+        }
+    }
+
+    @objc func installAPK() {
+        sideloader.choose(in: window)
+    }
+
+    func sideload(_ urls: [URL]) {
+        guard engine.phase == .ready else {
+            tabs.notice = "Android is still starting. Try again in a moment."
+            return
+        }
+        if !homeVisible { home() }
+        sideloader.install(urls)
+    }
+
+    private func sideloadFinished(_ name: String, _ error: String?) {
+        Task { await library.refresh() }
+        guard let error else {
+            tabs.notice = "Installed \(name)"
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                if tabs.notice == "Installed \(name)" { tabs.notice = "" }
+            }
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Couldn't install \(name)"
+        alert.informativeText = error
+        alert.alertStyle = .warning
+        if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
     }
 
     /// Opens the game, then the controls editor on top of it.

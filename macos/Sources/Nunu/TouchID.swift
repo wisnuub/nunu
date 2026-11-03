@@ -12,7 +12,7 @@ final class TouchIDBridge {
     /// Short progress note for the tab strip (Macs can't vibrate like a phone's sensor).
     var onNotice: ((String?) -> Void)?
 
-    private var watcher: Task<Void, Never>?
+    private var watcher: LogStream?
     private var context: LAContext?
     private var enrollActive = false    // the HAL has an enroll session open
     private var authActive = false      // the HAL is waiting for a finger to verify
@@ -32,7 +32,7 @@ final class TouchIDBridge {
         watcher?.cancel()
         // Only lines from now on: an old AUTHENTICATING line must not pop a prompt.
         watcher = engine.streamLogcat("-T \"$(date +'%m-%d %H:%M:%S.000')\" -s fingerprint-service.ranchu") { [weak self] line in
-            await self?.handle(line)
+            self?.handle(line)
         }
         Task { await resumePending() }
     }

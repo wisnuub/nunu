@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var setupWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private lazy var installer = SDKInstaller()
+    private var pendingAPKs: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = buildMenu()
@@ -17,6 +18,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// APKs double-clicked or dropped on the Dock icon.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        let apks = urls.filter(Sideloader.accepts)
+        guard !apks.isEmpty else { return }
+        if let player { player.sideload(apks) } else { pendingAPKs += apks }
+    }
 
     /// Quitting saves Android's state (quick boot) so the next launch resumes in seconds.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -53,7 +61,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         p.onOpenSettings = { [weak self] in self?.showSettings(nil) }
         engine.onPhase = { [weak p] phase in p?.engineChanged(phase) }
         engine.onClientReady = { [weak p] client in p?.attach(client) }
-        engine.onGuestReady = { [weak p] in p?.guestReady() }
+        engine.onGuestReady = { [weak self, weak p] in
+            p?.guestReady()
+            if let apks = self?.pendingAPKs, !apks.isEmpty {
+                self?.pendingAPKs = []
+                p?.sideload(apks)
+            }
+        }
         player = p
         p.showWindow(nil)
         let settings = self.settings
@@ -140,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         android.addItem(item("Next App", #selector(PlayerWindowController.nextApp), "\t", mods: [.control]))
         android.addItem(item("Previous App", #selector(PlayerWindowController.previousApp), "\t", mods: [.control, .shift]))
         android.addItem(item("Play Store", #selector(PlayerWindowController.playStore), "P", mods: [.command, .shift]))
+        android.addItem(item("Install APK…", #selector(PlayerWindowController.installAPK), "o"))
         android.addItem(.separator())
         android.addItem(item("Edit Game Controls", #selector(PlayerWindowController.toggleControls), "k"))
         android.addItem(item("Show Control Hints", #selector(PlayerWindowController.toggleHints), "K", mods: [.command, .shift]))

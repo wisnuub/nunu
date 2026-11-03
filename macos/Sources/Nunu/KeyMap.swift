@@ -41,6 +41,22 @@ struct Control: Codable, Identifiable, Equatable {
 
 struct KeyMap: Codable, Equatable {
     var controls: [Control] = []
+    /// Per game: draw the key hints over the game. Controls work either way.
+    var showOverlay = true
+    /// Per game: lock the mouse for aiming as soon as the game comes to the front.
+    var lockOnOpen = false
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        controls = (try? c.decodeIfPresent([Control].self, forKey: .controls)) ?? []
+        showOverlay = (try? c.decodeIfPresent(Bool.self, forKey: .showOverlay)) ?? true
+        lockOnOpen = (try? c.decodeIfPresent(Bool.self, forKey: .lockOnOpen)) ?? false
+    }
+
+    /// The key that locks the mouse (the aim area's key).
+    var lockKey: UInt16? { controls.first { $0.kind == .aim }?.key }
 
     static func url(for package: String) -> URL {
         Paths.keymaps.appendingPathComponent("\(package).json")
@@ -95,10 +111,7 @@ final class KeyMapper {
 
     /// Returns true when the key was consumed by a control.
     func key(_ code: UInt16, down: Bool) -> Bool {
-        if aiming, code == 53 { // Esc always releases the mouse
-            if down { setAiming(false) }
-            return true
-        }
+        // Releasing is only ⌃⌥ (see FrameView), so Esc and every other key reach the game.
         var consumed = false
         for (i, c) in map.controls.enumerated() {
             switch c.kind {
@@ -115,7 +128,7 @@ final class KeyMapper {
                 updateJoystick(c, index: i, code: code, down: down)
             case .aim where c.key == code:
                 consumed = true
-                if down { setAiming(!aiming) }
+                if down, !aiming { setAiming(true) }   // lock only; ⌃⌥ releases
             default:
                 break
             }

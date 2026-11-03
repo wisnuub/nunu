@@ -152,7 +152,7 @@ final class Engine {
         // A freshly started private adb server needs a moment to find the device.
         let serial = self.serial
         for _ in 0..<20 {
-            let devices = await Task.detached { Self.adbSync(["devices"]) }.value
+            let devices = await Self.offPool { Self.adbSync(["devices"]) }
             if devices.contains("\(serial)\tdevice") { break }
             try? await Task.sleep(for: .milliseconds(500))
         }
@@ -203,7 +203,7 @@ final class Engine {
         // The console's `kill` is what writes the quick-boot snapshot; gRPC
         // SHUTDOWN powers Android off and the engine gives up on saving.
         let port = consolePort
-        let viaConsole = await Task.detached { Self.console(port: port, "kill") }.value
+        let viaConsole = await Self.offPool { Self.console(port: port, "kill") }
         if !viaConsole { await client?.shutdown() }
         log("stop requested (\(viaConsole ? "console" : "gRPC")), waiting for snapshot save")
         if !(await waitForExit(seconds: 150)) {
@@ -274,7 +274,18 @@ final class Engine {
     @discardableResult
     func adb(_ args: [String]) async -> String {
         let serial = self.serial
-        return await Task.detached { Self.adbSync(["-s", serial] + args) }.value
+        return await Self.offPool { Self.adbSync(["-s", serial] + args) }
+    }
+
+    /// Blocking work (adb, sockets) runs here, never on Swift's cooperative pool:
+    /// that pool is tiny, and a few blocked threads stall every task in nunu,
+    /// including the input stream and the foreground watcher.
+    private nonisolated static let blockingQueue = DispatchQueue(label: "nunu.blocking", qos: .userInitiated, attributes: .concurrent)
+
+    nonisolated static func offPool<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { cont in
+            blockingQueue.async { cont.resume(returning: work()) }
+        }
     }
 
     nonisolated static func adbSync(_ args: [String]) -> String {

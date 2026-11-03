@@ -189,7 +189,7 @@ struct SettingsView: View {
                 }
                 Button("Edit controls for the current game") { onEditControls() }
             } footer: {
-                Text("⌘K opens the controls editor in any game: add tap keys, a W A S D stick, a mouse-look area (` toggles it, Esc releases) and a fire button for left click. Controls are saved per game.")
+                Text("⌘K opens the controls editor in any game: add tap keys, a W A S D stick, an aim area with its own mouse-lock key, and a fire button for left click. ⌃⌥ always releases a locked mouse. Each game keeps its own keys, overlay visibility and lock-on-open setting.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

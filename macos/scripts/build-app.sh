@@ -36,6 +36,15 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key><false/>
   <key>NSHumanReadableCopyright</key><string>nunu</string>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>Android app</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSHandlerRank</key><string>Default</string>
+      <key>CFBundleTypeExtensions</key><array><string>apk</string><string>apks</string><string>xapk</string></array>
+    </dict>
+  </array>
 </dict>
 </plist>
 EOF

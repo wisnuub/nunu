@@ -15,6 +15,11 @@ final class ControlsOverlay: NSView {
     private var pendingKey: UInt16?
     private var selected: UUID?
     private var awaitingKey = false
+    private var awaitingLockKey = false
+    private let lockKeyButton = NSButton()
+    private let overlayToggle = NSButton(checkboxWithTitle: "Show overlay", target: nil, action: nil)
+    private let lockOnOpenToggle = NSButton(checkboxWithTitle: "Lock mouse when game opens", target: nil, action: nil)
+    private let settingsRow = NSStackView()
     private var dragging = false
     private let palette = NSStackView()
     private let hint = NSTextField(labelWithString: "")
@@ -39,7 +44,10 @@ final class ControlsOverlay: NSView {
         awaitingKey = false
         selected = nil
         palette.isHidden = !on
+        settingsRow.isHidden = !on
         hint.isHidden = !on
+        awaitingLockKey = false
+        if on { refreshSettingsRow() }
         if on {
             window?.makeFirstResponder(self)
             if keyMapper.package.isEmpty { setHint("Open a game first. Controls are saved per app.") }
@@ -76,6 +84,23 @@ final class ControlsOverlay: NSView {
         palette.translatesAutoresizingMaskIntoConstraints = false
         addSubview(palette)
 
+        // Per-game options: mouse-lock key, overlay visibility, lock on open.
+        lockKeyButton.bezelStyle = .rounded
+        lockKeyButton.target = self
+        lockKeyButton.action = #selector(changeLockKey)
+        overlayToggle.target = self
+        overlayToggle.action = #selector(toggleOverlay)
+        lockOnOpenToggle.target = self
+        lockOnOpenToggle.action = #selector(toggleLockOnOpen)
+        let release = NSTextField(labelWithString: "Release mouse: ⌃⌥")
+        release.textColor = .secondaryLabelColor
+        for v in [lockKeyButton, overlayToggle, lockOnOpenToggle, release] as [NSView] { settingsRow.addArrangedSubview(v) }
+        settingsRow.orientation = .horizontal
+        settingsRow.spacing = 14
+        settingsRow.isHidden = true
+        settingsRow.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(settingsRow)
+
         hint.textColor = .white
         hint.font = .systemFont(ofSize: 12, weight: .medium)
         hint.alignment = .center
@@ -86,18 +111,48 @@ final class ControlsOverlay: NSView {
         NSLayoutConstraint.activate([
             palette.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             palette.centerXAnchor.constraint(equalTo: centerXAnchor),
-            hint.topAnchor.constraint(equalTo: palette.bottomAnchor, constant: 8),
+            settingsRow.topAnchor.constraint(equalTo: palette.bottomAnchor, constant: 8),
+            settingsRow.centerXAnchor.constraint(equalTo: centerXAnchor),
+            hint.topAnchor.constraint(equalTo: settingsRow.bottomAnchor, constant: 8),
             hint.centerXAnchor.constraint(equalTo: centerXAnchor),
         ])
     }
 
     private func setHint(_ s: String) { hint.stringValue = s }
 
+    private func refreshSettingsRow() {
+        lockKeyButton.title = "Mouse lock key: \(keyMapper.map.lockKey.map { KeyName.label($0) } ?? "none")"
+        overlayToggle.state = keyMapper.map.showOverlay ? .on : .off
+        lockOnOpenToggle.state = keyMapper.map.lockOnOpen ? .on : .off
+        lockOnOpenToggle.isEnabled = keyMapper.hasAim
+    }
+
+    @objc private func changeLockKey() {
+        guard keyMapper.hasAim else {
+            setHint("Add an Aim area first: it's where the locked mouse steers the camera.")
+            return
+        }
+        pending = nil
+        awaitingKey = false
+        awaitingLockKey = true
+        setHint("Press the key that locks the mouse in this game.")
+    }
+
+    @objc private func toggleOverlay() {
+        keyMapper.map.showOverlay = overlayToggle.state == .on
+        setHint(keyMapper.map.showOverlay ? "Key hints show over the game." : "Key hints hidden in game. The controls still work.")
+        needsDisplay = true
+    }
+
+    @objc private func toggleLockOnOpen() {
+        keyMapper.map.lockOnOpen = lockOnOpenToggle.state == .on
+    }
+
     @objc private func addTap() { arm(.tap, key: nil, "Click where the key should tap, then press a key.") }
     @objc private func addJoystick() { arm(.joystick, key: nil, "Click the centre of the game's movement stick (W A S D).") }
     @objc private func addAim() {
         if keyMapper.hasAim { setHint("There's already an aim area. Drag it to move it."); return }
-        arm(.aim, key: nil, "Click the middle of the camera area. ` toggles mouse-look in game, Esc leaves it.")
+        arm(.aim, key: nil, "Click the middle of the camera area. Your lock key (` by default) locks the mouse there; ⌃⌥ releases it.")
     }
     @objc private func addFire() { arm(.tap, key: MouseKey.left, "Click the fire button. Left click taps it while aiming.") }
 
@@ -165,6 +220,7 @@ final class ControlsOverlay: NSView {
             awaitingKey = kind == .tap && c.key == nil
             pending = nil
             setHint(awaitingKey ? "Press a key for this tap." : "Drag to move · click then press a key to rebind · right-click to delete")
+            refreshSettingsRow()
         } else if let i = control(at: p) {
             selected = keyMapper.map.controls[i].id
             dragging = true
@@ -197,6 +253,18 @@ final class ControlsOverlay: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if awaitingLockKey {
+            awaitingLockKey = false
+            if event.keyCode != 53, let i = keyMapper.map.controls.firstIndex(where: { $0.kind == .aim }) {
+                keyMapper.map.controls[i].key = event.keyCode
+                setHint("The mouse locks with \(KeyName.label(event.keyCode)). ⌃⌥ releases it.")
+            } else {
+                setHint("")
+            }
+            refreshSettingsRow()
+            needsDisplay = true
+            return
+        }
         if event.keyCode == 53 {  // Esc
             if pending != nil || awaitingKey { pending = nil; awaitingKey = false; setHint("") }
             else { setEditing(false) }
@@ -220,7 +288,7 @@ final class ControlsOverlay: NSView {
         if editing {
             NSColor.black.withAlphaComponent(0.35).setFill()
             bounds.fill()
-        } else if !showHints || keyMapper.aiming {
+        } else if !showHints || !keyMapper.map.showOverlay {
             return
         }
         let alpha: CGFloat = editing ? 0.9 : 0.4

@@ -66,6 +66,17 @@ The gRPC client in `Sources/EmulatorAPI` is generated from `proto/emulator_contr
 shelf, and shortcuts to the Play Store and settings. Right-click a game for controls,
 its store page or uninstall.
 
+Home lists only apps with a launcher icon, split into **My games** and **Others** by their
+Play Store category. Downloads show as a progress ring around the game's icon; ✕ cancels
+(through Android if allowed, otherwise by pressing Play's own cancel button).
+
+**Sideloading**: drag `.apk`, `.apks` (SAI/bundletool) or `.xapk` (APKPure, OBB data
+included) onto the window, use ⌘O / Install APK, or double-click one in Finder.
+
+**Mouse lock** (per game, in the ⌘K editor): set the game's lock key, whether its overlay
+shows (controls work either way) and whether the mouse locks when the game opens.
+⌃⌥ is the hard release, like VMware/Parallels; Esc goes to the game.
+
 **App tabs** in the title bar work like BlueStacks/MuMu: Home plus one tab per open app.
 Click to switch, ✕ or ⌘W closes the app (its task and process), right-click for Close
 Others / Close All, ⌃Tab cycles. Android's Recents screen is replaced by the tabs.

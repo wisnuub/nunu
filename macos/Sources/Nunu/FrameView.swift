@@ -218,6 +218,12 @@ final class FrameView: NSView {
     }
 
     override func flagsChanged(with event: NSEvent) {
+        // ⌃⌥ is the hard release for a locked mouse, like VMware/Parallels:
+        // two modifiers no game binds alone, so it never fires by accident.
+        let mods = event.modifierFlags.intersection([.control, .option, .command, .shift])
+        if keyMapper.aiming, mods == [.control, .option] {
+            keyMapper.setAiming(false)
+        }
         // Shift/Ctrl/Option go to Android; Command stays with macOS shortcuts.
         let tracked: [(NSEvent.ModifierFlags, Set<UInt16>)] = [
             (.shift, [56, 60]), (.control, [59, 62]), (.option, [58, 61]),
