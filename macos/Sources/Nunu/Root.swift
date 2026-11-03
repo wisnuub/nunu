@@ -48,7 +48,11 @@ final class RootManager: ObservableObject {
             }
             if !FileManager.default.isReadableFile(atPath: Paths.ksuManagerAPK.path) {
                 status = "Finding the KernelSU manager…"
-                let url = try await Self.latestAsset(repo: Self.managerRepo) { $0.hasSuffix(".apk") }
+                // Skip the "-spoofed" build: it installs under a random package, so
+                // our status check (which looks for `managerPackage`) wouldn't see it.
+                let url = try await Self.latestAsset(repo: Self.managerRepo) {
+                    $0.hasSuffix(".apk") && !$0.contains("spoofed")
+                }
                 status = "Downloading KernelSU manager…"
                 try await download(url, to: Paths.ksuManagerAPK) { [weak self] f in self?.progress = 0.6 + f * 0.4 }
             }
