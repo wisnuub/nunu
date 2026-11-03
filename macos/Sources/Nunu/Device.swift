@@ -31,6 +31,7 @@ struct DeviceSettings: Codable, Equatable {
     var showFPS = false
     var showHints = true
     var aimSensitivity = 1.0
+    var touchID = true
     var disabledApps: [String] = Debloat.recommended
 
     init() {}
@@ -59,6 +60,7 @@ struct DeviceSettings: Codable, Equatable {
         showFPS = v(.showFPS, d.showFPS)
         showHints = v(.showHints, d.showHints)
         aimSensitivity = v(.aimSensitivity, d.aimSensitivity)
+        touchID = v(.touchID, d.touchID)
         disabledApps = v(.disabledApps, d.disabledApps)
     }
 

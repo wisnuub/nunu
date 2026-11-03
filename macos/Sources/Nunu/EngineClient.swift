@@ -113,6 +113,14 @@ final class EngineClient: @unchecked Sendable {
         send(e)
     }
 
+    /// Touches (or lifts) Android's virtual fingerprint sensor with finger `id`.
+    func fingerprint(touching: Bool, id: Int32 = 1) async {
+        var f = Android_Emulation_Control_Fingerprint()
+        f.isTouching = touching
+        f.touchID = id
+        _ = try? await api.sendFingerprint(f, options: Self.quick)
+    }
+
     /// W3C key name, e.g. "GoBack", "GoHome", "AppSwitch", "AudioVolumeUp", "Power".
     func press(_ w3cKey: String) {
         var e = Android_Emulation_Control_InputEvent()

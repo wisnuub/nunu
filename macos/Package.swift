@@ -34,6 +34,7 @@ let package = Package(
                 .linkedFramework("Metal"),
                 .linkedFramework("QuartzCore"),
                 .linkedFramework("GameController"),
+                .linkedFramework("LocalAuthentication"),
             ]
         ),
     ]

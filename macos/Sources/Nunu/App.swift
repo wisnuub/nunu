@@ -88,6 +88,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onEditControls: { [weak self] in
                 self?.settingsWindow?.close()
                 self?.player?.toggleControls()
+            },
+            onSetUpFingerprint: { [weak self] in
+                self?.settingsWindow?.close()
+                self?.player?.setUpFingerprint()
             }
         )
         let w = NSWindow(contentViewController: NSHostingController(rootView: view))
@@ -140,6 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         android.addItem(item("Edit Game Controls", #selector(PlayerWindowController.toggleControls), "k"))
         android.addItem(item("Show Control Hints", #selector(PlayerWindowController.toggleHints), "K", mods: [.command, .shift]))
         android.addItem(item("Screenshot", #selector(PlayerWindowController.screenshot), "s"))
+        android.addItem(item("Fingerprint (Touch ID)", #selector(PlayerWindowController.useFingerprint), "T", mods: [.command, .shift]))
         android.addItem(item("Volume Up", #selector(PlayerWindowController.volumeUp), "="))
         android.addItem(item("Volume Down", #selector(PlayerWindowController.volumeDown), "-"))
         android.addItem(.separator())

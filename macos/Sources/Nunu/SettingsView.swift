@@ -12,6 +12,7 @@ struct SettingsView: View {
     var onCancel: () -> Void
     var onReset: () -> Void
     var onEditControls: () -> Void
+    var onSetUpFingerprint: () -> Void
 
     @State private var confirmReset = false
     @State private var showAllApps = false
@@ -207,6 +208,15 @@ struct SettingsView: View {
                 }
             } footer: {
                 Text("Quick boot saves Android's state on quit so it resumes in seconds. Storage can grow but not shrink.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle("Use Touch ID as Android's fingerprint", isOn: $settings.touchID)
+                Button("Set up fingerprint in Android…") { onSetUpFingerprint() }
+            } header: {
+                Text("Fingerprint")
+            } footer: {
+                Text("When an app, a Play Store purchase or the lock screen asks for a fingerprint, your Mac asks for Touch ID and passes the match to Android. Android needs a screen lock (PIN, pattern or password) first; during setup nunu asks for Touch ID once and does all the sensor touches for you.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Developer") {

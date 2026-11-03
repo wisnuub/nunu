@@ -71,6 +71,13 @@ Click to switch, ✕ or ⌘W closes the app (its task and process), right-click 
 Others / Close All, ⌃Tab cycles. Android's Recents screen is replaced by the tabs.
 Permission prompts and Google sign-in never open their own tab.
 
+**Touch ID as Android's fingerprint**: when an app, a Play Store purchase or the lock
+screen asks for a fingerprint, macOS asks for Touch ID and nunu passes the match to
+Android's virtual sensor (watching the guest's fingerprint HAL log). Set up once from
+Settings > Advanced > Set up fingerprint in Android; Android needs a screen lock first,
+then nunu asks for Touch ID once and performs all the enrollment touches. The toolbar's
+Touch ID button (⇧⌘T) answers any prompt manually.
+
 **Settings** (⌘,):
 
 | Tab | |

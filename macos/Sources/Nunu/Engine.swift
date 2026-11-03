@@ -53,6 +53,7 @@ final class Engine {
         phaseClock = Date()
         phase = .launching
         Paths.ensure(Paths.logs, Paths.run)
+        Self.killOrphanedWatchers()
 
         if let running = Self.loadState().flatMap({ Self.isEngineProcess($0.pid) ? $0 : nil })
             ?? Self.discoverRunningEngine() {
@@ -362,6 +363,25 @@ final class Engine {
         guard proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 else { return false }
         let path = String(cString: buf)
         return path.hasPrefix(Paths.sdk.path) && path.contains("qemu-system")
+    }
+
+    /// logcat watchers (`adb shell logcat …`) from a nunu that crashed or was killed
+    /// get re-parented to launchd and would stream forever; stop them.
+    private static func killOrphanedWatchers() {
+        let ps = Process()
+        ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+        ps.arguments = ["-axo", "pid=,ppid=,command="]
+        let out = Pipe()
+        ps.standardOutput = out
+        guard (try? ps.run()) != nil else { return }
+        let text = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        ps.waitUntilExit()
+        for line in text.split(whereSeparator: \.isNewline) {
+            let cols = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+            guard cols.count == 3, cols[1] == "1", cols[2].hasPrefix(Paths.adb.path),
+                  cols[2].contains(" shell logcat "), let pid = pid_t(cols[0]) else { continue }
+            kill(pid, SIGTERM)
+        }
     }
 
     /// Finds nunu's engine through the discovery file it writes on start, for when

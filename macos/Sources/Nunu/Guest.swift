@@ -201,11 +201,22 @@ extension Engine {
     /// Streams foreground-app changes from Android's event log as they happen,
     /// instead of polling dumpsys. Ends when the engine goes away.
     func watchForeground(_ onChange: @escaping @MainActor (String) -> Void) -> Task<Void, Never> {
+        streamLogcat("-b events -T 1 -v brief -s wm_set_resumed_activity") { line in
+            // I/wm_set_resumed_activity( 567): [0,com.foo/.Main,reason]
+            guard let open = line.firstIndex(of: "[") else { return }
+            let fields = line[line.index(after: open)...].split(separator: ",")
+            guard fields.count > 1, let slash = fields[1].firstIndex(of: "/") else { return }
+            await onChange(String(fields[1][..<slash]))
+        }
+    }
+
+    /// Runs `logcat <args>` in the guest and hands each line to `onLine` until cancelled.
+    func streamLogcat(_ args: String, onLine: @escaping @Sendable (String) async -> Void) -> Task<Void, Never> {
         let serial = self.serial
         return Task.detached {
             let p = Process()
             p.executableURL = Paths.adb
-            p.arguments = ["-s", serial, "shell", "logcat -b events -T 1 -v brief -s wm_set_resumed_activity"]
+            p.arguments = ["-s", serial, "shell", "logcat \(args)"]
             p.environment = Engine.environment
             let out = Pipe()
             p.standardOutput = out
@@ -213,14 +224,7 @@ extension Engine {
             guard (try? p.run()) != nil else { return }
             await withTaskCancellationHandler {
                 do {
-                    for try await line in out.fileHandleForReading.bytes.lines {
-                        // I/wm_set_resumed_activity( 567): [0,com.foo/.Main,reason]
-                        guard let open = line.firstIndex(of: "[") else { continue }
-                        let fields = line[line.index(after: open)...].split(separator: ",")
-                        guard fields.count > 1, let slash = fields[1].firstIndex(of: "/") else { continue }
-                        let pkg = String(fields[1][..<slash])
-                        await onChange(pkg)
-                    }
+                    for try await line in out.fileHandleForReading.bytes.lines { await onLine(line) }
                 } catch {}
             } onCancel: {
                 p.terminate()

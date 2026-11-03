@@ -25,6 +25,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         return host
     }()
     private var fpsTimer: Timer?
+    private lazy var touchID = TouchIDBridge(engine: engine)
     private lazy var homeView = NSHostingView(rootView: HomeView(model: library))
     private(set) var homeVisible = false
 
@@ -72,6 +73,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         overlay.onEditingChanged = { [weak self] _ in self?.overlay.needsDisplay = true }
         overlay.showHints = settings.showHints
         keyMapper.sensitivityScale = settings.aimSensitivity
+        touchID.enabled = settings.touchID
         wireLibrary()
         wireTabs()
     }
@@ -103,6 +105,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
             ("", "", #selector(noop)),
             ("bag", "Play Store", #selector(playStore)),
             ("keyboard", "Game controls (⌘K)", #selector(toggleControls)),
+            ("touchid", "Fingerprint: Touch ID (⇧⌘T)", #selector(useFingerprint)),
             ("camera", "Screenshot (⌘S)", #selector(screenshot)),
             ("speaker.wave.3", "Volume up", #selector(volumeUp)),
             ("speaker.wave.1", "Volume down", #selector(volumeDown)),
@@ -315,6 +318,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         streamTask = nil
         focusTask?.cancel()
         focusTask = nil
+        touchID.stop()
         frameView.releaseInput()
     }
 
@@ -339,6 +343,8 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
     func guestReady() {
         focusTask?.cancel()
         focusTask = engine.watchForeground { [weak self] pkg in self?.foregroundChanged(pkg) }
+        touchID.enabled = settings.touchID
+        touchID.start()
         Task {
             tabs.sync(running: await engine.runningApps())
             if let pkg = await engine.foregroundPackage() { foregroundChanged(pkg) }
@@ -470,6 +476,7 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         self.settings = settings
         overlay.showHints = settings.showHints
         keyMapper.sensitivityScale = settings.aimSensitivity
+        touchID.enabled = settings.touchID
         if resized { sizeWindow(animate: true) }
     }
 
@@ -483,6 +490,12 @@ final class PlayerWindowController: NSWindowController, NSWindowDelegate {
         setHome(visible: true)
     }
     @objc func closeApp() { tabs.closeActive() }
+    @objc func useFingerprint() { Task { await touchID.touchSensor() } }
+
+    func setUpFingerprint() {
+        let engine = self.engine
+        open("fingerprint setup") { await engine.shell("am start -a android.settings.BIOMETRIC_ENROLL >/dev/null 2>&1") }
+    }
     @objc func nextApp() { tabs.cycle(by: 1) }
     @objc func previousApp() { tabs.cycle(by: -1) }
     @objc func volumeUp() { frameView.client?.press("AudioVolumeUp") }
